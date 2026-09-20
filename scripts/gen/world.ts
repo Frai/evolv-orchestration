@@ -25,7 +25,7 @@ export interface SeriesConfig {
   avgCheck: number;
   partySize: number;
   itemsPerCover: number;
-  /** 13 buckets, 11:00 .. 23:00, sums to 1. */
+  /** 17 buckets, 07:00 .. 23:00, relative weights (need not sum to 1). */
   hourlyProfile: number[];
   channelMix: Record<Channel, number>;
   tipRate: number;
@@ -34,18 +34,28 @@ export interface SeriesConfig {
   shifts: ShiftTemplate[];
   /** Deviation from the standard weekday curve. */
   weekdayFactors?: number[];
+  /** Hour index (into hourlyProfile) where the kitchen's ticket rush lands. Defaults to the profile's own peak hour. */
+  kitchenRushHourIndex?: number;
 }
 
 export const STANDARD_WEEKDAY = [1.0, 0.8, 0.8, 0.95, 1.05, 1.35, 1.35]; // Sun..Sat
 export const QSR_WEEKDAY = [0.9, 0.85, 0.85, 1.0, 1.05, 1.3, 1.25];
 export const HOTEL_BAR_WEEKDAY = [0.85, 0.75, 0.8, 0.95, 1.15, 1.4, 1.45];
+/** Brunch spots swing hard to the weekend — tourists and lazy mornings, not commuters. */
+export const BREAKFAST_WEEKDAY = [1.35, 0.75, 0.75, 0.8, 0.85, 1.1, 1.45];
 
-const FSR_DINNER = [0.03, 0.07, 0.07, 0.04, 0.03, 0.04, 0.08, 0.14, 0.17, 0.14, 0.1, 0.06, 0.03];
-const QSR_LUNCH = [0.08, 0.17, 0.16, 0.09, 0.05, 0.05, 0.09, 0.11, 0.09, 0.06, 0.03, 0.015, 0.005];
-const CANTINA = [0.03, 0.08, 0.08, 0.05, 0.03, 0.04, 0.09, 0.14, 0.16, 0.13, 0.09, 0.05, 0.03];
-const HOTEL_RESTAURANT = [0.09, 0.12, 0.1, 0.05, 0.03, 0.03, 0.07, 0.13, 0.15, 0.12, 0.07, 0.03, 0.01];
-const HOTEL_BAR = [0.01, 0.03, 0.04, 0.04, 0.05, 0.08, 0.1, 0.11, 0.12, 0.13, 0.13, 0.1, 0.06];
-const ROOM_SERVICE = [0.04, 0.09, 0.08, 0.04, 0.03, 0.03, 0.05, 0.12, 0.15, 0.13, 0.11, 0.08, 0.05];
+// Every profile below is 17 values, index 0 = 07:00 .. index 16 = 23:00.
+// Restaurants that don't open for breakfast simply carry zero weight in the first four slots.
+const FSR_DINNER = [0, 0, 0, 0, 0.03, 0.07, 0.07, 0.04, 0.03, 0.04, 0.08, 0.14, 0.17, 0.14, 0.1, 0.06, 0.03];
+const QSR_LUNCH = [0, 0, 0, 0, 0.08, 0.17, 0.16, 0.09, 0.05, 0.05, 0.09, 0.11, 0.09, 0.06, 0.03, 0.015, 0.005];
+const CANTINA = [0, 0, 0, 0, 0.03, 0.08, 0.08, 0.05, 0.03, 0.04, 0.09, 0.14, 0.16, 0.13, 0.09, 0.05, 0.03];
+// The hotel dining room actually serves breakfast, so it gets a real morning rush, not a placeholder.
+const HOTEL_RESTAURANT = [0.05, 0.12, 0.14, 0.07, 0.08, 0.11, 0.09, 0.03, 0.02, 0.05, 0.09, 0.13, 0.15, 0.12, 0.07, 0.03, 0.01];
+const HOTEL_BAR = [0, 0, 0, 0, 0.01, 0.03, 0.04, 0.04, 0.05, 0.08, 0.1, 0.11, 0.12, 0.13, 0.13, 0.1, 0.06];
+// Breakfast-in-room plus a late-night bump (the wings and cheese board on the room-service menu).
+const ROOM_SERVICE = [0.07, 0.14, 0.11, 0.05, 0.04, 0.08, 0.07, 0.03, 0.02, 0.04, 0.09, 0.12, 0.14, 0.12, 0.1, 0.09, 0.06];
+// A brunch café: one sharp rush 8:00–10:00, a smaller late-brunch tail, closed by early afternoon.
+const BREAKFAST_CAFE = [0.1, 0.2, 0.22, 0.16, 0.11, 0.1, 0.07, 0.03, 0.01, 0, 0, 0, 0, 0, 0, 0, 0];
 
 const M = (id: string, name: string, category: string, price: number): MenuItem => ({ id, name, category, price });
 
@@ -67,11 +77,11 @@ const QSR_SHIFTS: ShiftTemplate[] = [
 ];
 
 const HOTEL_RESTAURANT_SHIFTS: ShiftTemplate[] = [
-  { id: "bfast-foh", role: "Server", start: "07:00", end: "11:00", window: [11, 12], dollarsPerHead: 220, min: 1 },
+  { id: "bfast-foh", role: "Server", start: "07:00", end: "11:00", window: [7, 11], dollarsPerHead: 850, min: 1 },
   { id: "lunch-foh", role: "Server", start: "11:00", end: "14:00", window: [11, 14], dollarsPerHead: 520, min: 1 },
-  { id: "day-boh", role: "Line cook", start: "06:30", end: "15:00", window: [11, 15], dollarsPerHead: 900, min: 1 },
-  { id: "dinner-foh", role: "Server", start: "16:00", end: "23:00", window: [16, 24], dollarsPerHead: 1100, min: 2 },
-  { id: "dinner-boh", role: "Line cook", start: "15:00", end: "23:00", window: [16, 24], dollarsPerHead: 1400, min: 2 },
+  { id: "day-boh", role: "Line cook", start: "06:30", end: "15:00", window: [7, 15], dollarsPerHead: 1450, min: 1 },
+  { id: "dinner-foh", role: "Server", start: "16:00", end: "23:00", window: [16, 24], dollarsPerHead: 1300, min: 2 },
+  { id: "dinner-boh", role: "Line cook", start: "15:00", end: "23:00", window: [16, 24], dollarsPerHead: 1650, min: 2 },
   { id: "mgr", role: "Outlet manager", start: "09:00", end: "21:00", window: [11, 24], dollarsPerHead: 1, min: 1, fixed: 1 },
 ];
 
@@ -82,8 +92,16 @@ const HOTEL_BAR_SHIFTS: ShiftTemplate[] = [
 ];
 
 const ROOM_SERVICE_SHIFTS: ShiftTemplate[] = [
-  { id: "day-rs", role: "Room service attendant", start: "07:00", end: "15:00", window: [11, 15], dollarsPerHead: 550, min: 1 },
+  { id: "day-rs", role: "Room service attendant", start: "07:00", end: "15:00", window: [7, 15], dollarsPerHead: 550, min: 1 },
   { id: "night-rs", role: "Room service attendant", start: "15:00", end: "23:00", window: [15, 24], dollarsPerHead: 600, min: 1 },
+];
+
+const BREAKFAST_SHIFTS: ShiftTemplate[] = [
+  { id: "open-foh", role: "Server", start: "06:30", end: "11:00", window: [7, 11], dollarsPerHead: 850, min: 1 },
+  { id: "open-boh", role: "Cook", start: "06:00", end: "11:00", window: [7, 11], dollarsPerHead: 1050, min: 1 },
+  { id: "late-foh", role: "Server", start: "11:00", end: "14:30", window: [11, 15], dollarsPerHead: 850, min: 1 },
+  { id: "late-boh", role: "Cook", start: "11:00", end: "14:30", window: [11, 15], dollarsPerHead: 1100, min: 1 },
+  { id: "mgr", role: "Manager", start: "06:30", end: "14:30", window: [7, 15], dollarsPerHead: 1, min: 1, fixed: 1 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -102,6 +120,7 @@ export const LOCATIONS: Location[] = [
     targetLabourPct: 0.28,
     menuItemCount: 45,
     staffCount: 22,
+    kitchenTicketCapacityPerHour: 18,
     wageBands: [
       { role: "Server", hourlyRate: 16.5 },
       { role: "Line cook", hourlyRate: 21 },
@@ -121,6 +140,7 @@ export const LOCATIONS: Location[] = [
     targetLabourPct: 0.28,
     menuItemCount: 18,
     staffCount: 12,
+    kitchenTicketCapacityPerHour: 45,
     wageBands: [
       { role: "Cashier", hourlyRate: 16 },
       { role: "Cook", hourlyRate: 18 },
@@ -139,6 +159,7 @@ export const LOCATIONS: Location[] = [
     targetLabourPct: 0.28,
     menuItemCount: 38,
     staffCount: 18,
+    kitchenTicketCapacityPerHour: 16,
     wageBands: [
       { role: "Server", hourlyRate: 16.5 },
       { role: "Line cook", hourlyRate: 20 },
@@ -158,6 +179,7 @@ export const LOCATIONS: Location[] = [
     targetLabourPct: 0.3,
     menuItemCount: 50,
     staffCount: 41,
+    kitchenTicketCapacityPerHour: 26,
     wageBands: [
       { role: "Server", hourlyRate: 17 },
       { role: "Line cook", hourlyRate: 22 },
@@ -167,11 +189,30 @@ export const LOCATIONS: Location[] = [
       { role: "Outlet manager", hourlyRate: 30 },
     ],
     outlets: [
-      { id: "grange", name: "The Grange", kind: "restaurant" },
-      { id: "larkspur", name: "Larkspur Bar", kind: "bar" },
-      { id: "room-service", name: "Room Service", kind: "room_service" },
+      { id: "grange", name: "The Grange", kind: "restaurant", kitchenTicketCapacityPerHour: 11 },
+      { id: "larkspur", name: "Larkspur Bar", kind: "bar", kitchenTicketCapacityPerHour: 9 },
+      { id: "room-service", name: "Room Service", kind: "room_service", kitchenTicketCapacityPerHour: 6 },
     ],
     owner: { name: "Priya Raman", phone: "+1 403 555 0163", email: "priya.raman@kensingtoncalgary.com" },
+  },
+  {
+    id: "the-early-bird",
+    name: "The Early Bird",
+    shortName: "Early Bird",
+    type: "full_service",
+    pos: "clover",
+    city: "Banff, AB",
+    currency: "CAD",
+    targetLabourPct: 0.3,
+    menuItemCount: 22,
+    staffCount: 11,
+    kitchenTicketCapacityPerHour: 20,
+    wageBands: [
+      { role: "Server", hourlyRate: 16.5 },
+      { role: "Cook", hourlyRate: 19 },
+      { role: "Manager", hourlyRate: 26 },
+    ],
+    owner: { name: "Jess Okonkwo", phone: "+1 403 555 0176", email: "jess@earlybirdbanff.ca" },
   },
 ];
 
@@ -348,6 +389,31 @@ const ROOM_SERVICE_MENU: MenuItem[] = [
   M("kh-r-kids-pasta", "Kids Pasta", "All day", 12),
 ];
 
+const EARLY_BIRD_MENU: MenuItem[] = [
+  M("eb-pancakes", "Buttermilk Pancakes", "Breakfast", 14),
+  M("eb-benny", "Classic Eggs Benedict", "Breakfast", 17),
+  M("eb-benny-salmon", "Smoked Salmon Benedict", "Breakfast", 19),
+  M("eb-avo-toast", "Avocado Toast", "Breakfast", 15),
+  M("eb-burrito", "Breakfast Burrito", "Breakfast", 16),
+  M("eb-french-toast", "Brioche French Toast", "Breakfast", 15),
+  M("eb-quiche", "Quiche of the Day", "Breakfast", 13),
+  M("eb-granola", "Granola & Yogurt Bowl", "Breakfast", 11),
+  M("eb-oatmeal", "Steel-Cut Oatmeal", "Breakfast", 9),
+  M("eb-egg-sandwich", "Egg & Cheese Sandwich", "Breakfast", 10),
+  M("eb-omelette", "Farmhouse Omelette", "Breakfast", 15),
+  M("eb-huevos", "Huevos Rancheros", "Brunch", 16),
+  M("eb-waffle", "Belgian Waffle", "Breakfast", 14),
+  M("eb-hash", "Home Fries", "Sides", 6),
+  M("eb-bacon", "Side Bacon", "Sides", 5),
+  M("eb-sausage", "Side Sausage", "Sides", 5),
+  M("eb-coffee", "Drip Coffee", "Drinks", 4),
+  M("eb-latte", "Latte", "Drinks", 5.5),
+  M("eb-juice", "Fresh Orange Juice", "Drinks", 6),
+  M("eb-smoothie", "Mixed Berry Smoothie", "Drinks", 7),
+  M("eb-mimosa", "Mimosa", "Drinks", 9),
+  M("eb-caesar", "Classic Caesar", "Drinks", 11),
+];
+
 export const SERIES: SeriesConfig[] = [
   {
     locationId: "prairie-table",
@@ -396,7 +462,7 @@ export const SERIES: SeriesConfig[] = [
     locationId: "kensington-hotel",
     outletId: "grange",
     label: "The Grange",
-    base: 4200,
+    base: 5200,
     avgCheck: 39,
     partySize: 2.1,
     itemsPerCover: 2.3,
@@ -407,6 +473,8 @@ export const SERIES: SeriesConfig[] = [
     deadItemIds: ["kh-g-duck"],
     shifts: HOTEL_RESTAURANT_SHIFTS,
     weekdayFactors: [1.1, 0.85, 0.85, 0.95, 1.0, 1.25, 1.3],
+    // The whole hotel converges on the 19:00 hour: dinner in the Grange, the bar filling up, room service's evening rush.
+    kitchenRushHourIndex: 12,
   },
   {
     locationId: "kensington-hotel",
@@ -423,12 +491,13 @@ export const SERIES: SeriesConfig[] = [
     deadItemIds: ["kh-b-whisky-flight"],
     shifts: HOTEL_BAR_SHIFTS,
     weekdayFactors: HOTEL_BAR_WEEKDAY,
+    kitchenRushHourIndex: 12,
   },
   {
     locationId: "kensington-hotel",
     outletId: "room-service",
     label: "Room Service",
-    base: 1400,
+    base: 1700,
     avgCheck: 41,
     partySize: 1.4,
     itemsPerCover: 1.8,
@@ -439,6 +508,22 @@ export const SERIES: SeriesConfig[] = [
     deadItemIds: ["kh-r-kids-pasta"],
     shifts: ROOM_SERVICE_SHIFTS,
     weekdayFactors: [1.05, 0.9, 0.9, 0.95, 1.0, 1.15, 1.2],
+    kitchenRushHourIndex: 12,
+  },
+  {
+    locationId: "the-early-bird",
+    label: "The Early Bird",
+    base: 1900,
+    avgCheck: 19,
+    partySize: 2.2,
+    itemsPerCover: 1.9,
+    hourlyProfile: BREAKFAST_CAFE,
+    channelMix: { dine_in: 0.82, takeout: 0.16, delivery: 0.02, room_service: 0 },
+    tipRate: 0.13,
+    menu: EARLY_BIRD_MENU,
+    deadItemIds: ["eb-huevos", "eb-oatmeal", "eb-quiche"],
+    shifts: BREAKFAST_SHIFTS,
+    weekdayFactors: BREAKFAST_WEEKDAY,
   },
 ];
 
@@ -587,5 +672,36 @@ export const STOCK = {
     ],
     "kensington-hotel",
     "kh",
+  ),
+  "the-early-bird": S(
+    [
+      ["Eggs", "Dairy", "flat", 50, 12, 7.5, "Sysco", 0.22],
+      ["Bacon", "Protein", "lb", 25, 6, 6.8, "Sysco", 0.55],
+      ["Breakfast sausage", "Protein", "lb", 20, 4, 6.2, "Sysco"],
+      ["Sourdough bread", "Bakery", "loaf", 20, 5, 4.5, "Wild Flour Bakery", 0.5],
+      ["Brioche bread", "Bakery", "loaf", 10, 2, 5.2, "Wild Flour Bakery"],
+      ["Butter", "Dairy", "kg", 8, 1.5, 9.5, "Vital Green Farms"],
+      ["Maple syrup", "Pantry", "L", 6, 1, 14, "Poplar Bluff Organics"],
+      ["Pancake mix", "Pantry", "kg", 15, 3, 3.8, "GFS"],
+      ["Smoked salmon", "Protein", "kg", 4, 0.8, 42, "GFS"],
+      ["Avocados", "Produce", "case", 5, 1.2, 62, "GFS"],
+      ["Russet potatoes", "Produce", "lb", 40, 9, 1.1, "GFS"],
+      ["Cheddar cheese", "Dairy", "kg", 6, 1.2, 11, "Sylvan Star Cheese"],
+      ["Cream cheese", "Dairy", "kg", 5, 1, 8, "GFS"],
+      ["Milk", "Dairy", "L", 30, 7, 2.1, "GFS"],
+      ["Heavy cream", "Dairy", "L", 10, 2, 4.2, "GFS"],
+      ["Orange juice", "Drinks", "L", 20, 5, 3.8, "GFS", 0.55],
+      ["Espresso beans", "Pantry", "kg", 8, 1.8, 34, "Phil & Sebastian"],
+      ["Granola", "Pantry", "kg", 6, 1, 9, "In-house"],
+      ["Greek yogurt", "Dairy", "kg", 8, 1.6, 6.5, "GFS"],
+      ["Mixed berries (frozen)", "Produce", "kg", 8, 1.5, 12, "Solstice Berry Farm"],
+      ["Sparkling wine", "Bar", "btl", 15, 3, 12, "Vintage West"],
+      ["Hot sauce", "Pantry", "btl", 10, 1, 6, "GFS"],
+      ["Ketchup", "Pantry", "jug", 6, 1, 11, "GFS"],
+      ["To-go cups", "Packaging", "sleeve", 20, 4, 6.5, "Packaging Plus"],
+      ["Takeout containers", "Packaging", "case", 8, 1.5, 30, "Packaging Plus"],
+    ],
+    "the-early-bird",
+    "eb",
   ),
 } as const;

@@ -5,6 +5,7 @@ import { int, money, pct, signedPct, signedPts } from "@/core/format";
 import { flaggedShifts } from "@/core/labour";
 import { sameWeekdayBaseline } from "@/core/sales";
 import { stockStatus } from "@/core/inventory";
+import { peakWindowLabel } from "@/core/kitchen";
 import type { ItemTotal } from "@/core/sales";
 
 export interface BriefContext {
@@ -84,6 +85,21 @@ function shapeParagraph(c: BriefContext): string {
   return parts.join(" ");
 }
 
+function kitchenParagraph(c: BriefContext): string | null {
+  const { input: i } = c;
+  if (!i.kitchenSeverity) return null;
+  const window = peakWindowLabel(i.kitchenPeakHourIndex);
+  const verb = i.kitchenSeverity === "critical" ? "very likely fell behind" : "ran hot";
+  const day = c.salesDays.find((d) => d.date === i.date);
+  const ticketShare = i.orders ? i.kitchenPeakOrders / i.orders : 0;
+  const salesShare = day && i.netSales ? day.hourly[i.kitchenPeakHourIndex] / i.netSales : ticketShare;
+  const bunched = ticketShare > salesShare * 1.3;
+  const tail = bunched
+    ? "That did not show up as a sales spike — it was orders landing on top of each other rather than a busier day."
+    : "It was a genuinely busy hour, not just a cluster of orders.";
+  return `The kitchen ${verb} ${window}: ${int(i.kitchenPeakOrders)} tickets against a comfortable pace of about ${int(i.kitchenCapacity)} an hour. ${tail}`;
+}
+
 function labourParagraph(c: BriefContext): string {
   const { input: i, labourDay, location } = c;
   if (i.labourPct === null || !labourDay) return "Labour data for the day had not synced when this brief was written.";
@@ -158,13 +174,13 @@ function headline(c: BriefContext): string {
 }
 
 export function composeBrief(c: BriefContext, channel: Brief["channel"], deliveredAt: string): Brief {
-  const paragraphs = [salesParagraph(c), shapeParagraph(c), labourParagraph(c), menuParagraph(c)];
+  const paragraphs = [salesParagraph(c), shapeParagraph(c), kitchenParagraph(c), labourParagraph(c), menuParagraph(c)];
   if (c.isLatest || c.variant % 3 === 0) paragraphs.push(lookAheadParagraph(c));
   return {
     locationId: c.location.id,
     date: c.input.date,
     headline: headline(c),
-    paragraphs: paragraphs.filter(Boolean),
+    paragraphs: paragraphs.filter((p): p is string => Boolean(p)),
     deliveredAt,
     channel,
   };

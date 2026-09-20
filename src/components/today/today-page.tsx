@@ -15,7 +15,7 @@ import { BriefCard } from "./brief-card";
 import { AlertsStrip } from "./alerts-strip";
 import { AskBox } from "./ask-box";
 
-const POS_LABEL = { toast: "Toast", square: "Square", lightspeed: "Lightspeed" } as const;
+const POS_LABEL = { toast: "Toast", square: "Square", lightspeed: "Lightspeed", clover: "Clover" } as const;
 const CHANNEL_LABEL = { whatsapp: "WhatsApp", email: "Email", both: "WhatsApp & Email" } as const;
 
 export function TodayPage() {

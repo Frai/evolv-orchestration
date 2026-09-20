@@ -5,11 +5,13 @@ import { useAppState } from "@/components/providers/app-state";
 import { useAsync } from "@/hooks/use-async";
 import { rangeEndingAt } from "@/core/dates";
 import { deadItems, hourlyHeatmap, itemTotals, sumBy, topItems } from "@/core/sales";
+import { capacityFor, kitchenSeverity, peakKitchenLoad, peakWindowLabel } from "@/core/kitchen";
 import { int, money, one, pct, signedPct } from "@/core/format";
 import { PageHeader } from "@/components/layout/page-header";
 import { Section } from "@/components/common/section";
 import { StatTile } from "@/components/common/stat-tile";
 import { Delta } from "@/components/common/delta";
+import { SeverityIcon } from "@/components/common/severity";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,6 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { SalesLine } from "@/components/charts/sales-line";
 import { HourHeatmap } from "@/components/charts/hour-heatmap";
 import { ChannelBars } from "@/components/charts/channel-bars";
+import { KitchenLoadChart } from "@/components/charts/kitchen-load-chart";
 
 type Window = 7 | 30 | 90;
 
@@ -40,6 +43,11 @@ export function SalesPage() {
   const avgCheck = covers ? total / covers : 0;
   const delivery = sumBy(days, (d) => d.channels.delivery + d.channels.room_service);
   const grid = days.length ? hourlyHeatmap(days) : null;
+
+  const yesterday = days.find((d) => d.date === asOf);
+  const kitchenCapacity = location ? capacityFor(location, outletId) : 0;
+  const kitchenPeak = yesterday ? peakKitchenLoad(yesterday, kitchenCapacity) : null;
+  const kitchenSev = kitchenPeak ? kitchenSeverity(kitchenPeak.ratio) : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -67,6 +75,37 @@ export function SalesPage() {
           <span className="inline-flex items-center gap-1.5"><span className="bg-chart-ghost h-0.5 w-4 rounded" /> Last year</span>
         </div>
       </Section>
+
+      <div id="kitchen-load" className="scroll-mt-20">
+        <Section
+          title="Kitchen load, yesterday"
+          description="Tickets by hour against a comfortable pace for the kitchen. A busy hour can outrun the kitchen without net sales looking unusual — this is what catches that."
+          actions={
+            kitchenSev ? (
+              <Badge variant={kitchenSev === "critical" ? "danger" : "warning"} className="gap-1.5">
+                <SeverityIcon severity={kitchenSev} /> {kitchenSev === "critical" ? "Fell behind" : "Ran hot"}
+              </Badge>
+            ) : kitchenPeak ? (
+              <Badge variant="success">Within pace</Badge>
+            ) : null
+          }
+        >
+          {sales.loading ? (
+            <Skeleton className="h-56" />
+          ) : yesterday ? (
+            <>
+              <KitchenLoadChart day={yesterday} capacity={kitchenCapacity} />
+              {kitchenPeak ? (
+                <p className="text-muted-foreground mt-2 text-xs">
+                  Peak {peakWindowLabel(kitchenPeak.index)}: {int(kitchenPeak.orders)} tickets against a comfortable pace of about {int(kitchenCapacity)} an hour.
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <EmptyState title="No data for yesterday" />
+          )}
+        </Section>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Section title="Sales by hour" description="Average net sales for each hour, by day of the week.">

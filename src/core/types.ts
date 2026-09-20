@@ -1,13 +1,15 @@
 // Domain types. No React, no fetch, no fixtures.
 
 export type LocationType = "full_service" | "quick_service" | "hotel";
-export type PosVendor = "toast" | "square" | "lightspeed";
+export type PosVendor = "toast" | "square" | "lightspeed" | "clover";
 export type DeliveryChannel = "whatsapp" | "email" | "both";
 
 export interface Outlet {
   id: string;
   name: string;
   kind: "restaurant" | "bar" | "room_service";
+  /** Tickets per hour this outlet's kitchen or bar can run without falling behind. */
+  kitchenTicketCapacityPerHour: number;
 }
 
 export interface WageBand {
@@ -27,6 +29,8 @@ export interface Location {
   menuItemCount: number;
   staffCount: number;
   wageBands: WageBand[];
+  /** Tickets per hour the kitchen can run without falling behind. For a hotel, the sum of its outlets'. */
+  kitchenTicketCapacityPerHour: number;
   /** Hotels only: F&B outlets that roll up into the location. */
   outlets?: Outlet[];
   owner: { name: string; phone: string; email: string };
@@ -41,9 +45,9 @@ export const CHANNEL_LABEL: Record<Channel, string> = {
   room_service: "Room service",
 };
 
-/** Hourly buckets run 11:00 through 23:00 inclusive (13 buckets). */
-export const HOUR_START = 11;
-export const HOUR_COUNT = 13;
+/** Hourly buckets run 07:00 through 23:00 inclusive (17 buckets), wide enough for a breakfast rush and a late dinner service. */
+export const HOUR_START = 7;
+export const HOUR_COUNT = 17;
 
 export interface SalesDay {
   locationId: string;
@@ -55,8 +59,10 @@ export interface SalesDay {
   tips: number;
   covers: number;
   orders: number;
-  /** Net sales by hour, index 0 = 11:00 … index 12 = 23:00. */
+  /** Net sales by hour, index 0 = 07:00 … index 16 = 23:00. */
   hourly: number[];
+  /** Tickets (orders) by hour, same indexing as `hourly`. Sums to `orders`. */
+  hourlyOrders: number[];
   channels: Record<Channel, number>;
   /** Net sales on the same weekday one year earlier. */
   lastYearNetSales: number;
@@ -145,7 +151,7 @@ export interface Alert {
   detail: string;
   /** Route the alert links to. */
   href: string;
-  source: "sales" | "labour" | "inventory";
+  source: "sales" | "labour" | "inventory" | "kitchen";
 }
 
 export type AgentStatus = "active" | "coming_soon";

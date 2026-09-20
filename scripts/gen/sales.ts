@@ -1,7 +1,8 @@
 import { CHANNELS, HOUR_COUNT, HOUR_START, type Channel, type SalesDay } from "@/core/types";
 import { weekday } from "@/core/dates";
+import { capacityFor } from "@/core/kitchen";
 import { Rng, hashSeed } from "./rng";
-import { SERIES, STANDARD_WEEKDAY, type SeriesConfig } from "./world";
+import { LOCATIONS, SERIES, STANDARD_WEEKDAY, type SeriesConfig } from "./world";
 
 export interface Anomalies {
   /** Date of the planted bad Saturday. */
@@ -60,6 +61,24 @@ function normalize(arr: number[], total: number): number[] {
   return arr.map((v) => round2((v / s) * total));
 }
 
+/** Like normalize, but returns whole numbers that sum exactly to `total` (largest-remainder method). Used for ticket counts. */
+function normalizeInt(arr: number[], total: number): number[] {
+  const s = arr.reduce((a, b) => a + Math.max(0, b), 0) || 1;
+  const raw = arr.map((v) => (Math.max(0, v) / s) * total);
+  const floors = raw.map(Math.floor);
+  const remainder = total - floors.reduce((a, b) => a + b, 0);
+  const byFraction = raw.map((v, i) => ({ i, frac: v - Math.floor(v) })).sort((a, b) => b.frac - a.frac);
+  const result = [...floors];
+  for (let k = 0; k < remainder && k < byFraction.length; k++) result[byFraction[k].i]++;
+  return result;
+}
+
+function argmax(arr: number[]): number {
+  let best = 0;
+  for (let i = 1; i < arr.length; i++) if (arr[i] > arr[best]) best = i;
+  return best;
+}
+
 export function generateSeries(cfg: SeriesConfig, dates: string[], anomalies: Anomalies): SeriesOutput {
   const rng = new Rng(hashSeed(`sales:${cfg.locationId}:${cfg.outletId ?? "all"}`));
   const days: SalesDay[] = [];
@@ -89,6 +108,16 @@ export function generateSeries(cfg: SeriesConfig, dates: string[], anomalies: An
     qty: [],
   }));
 
+  // The kitchen tends to get slammed at its own busiest hour, not a random one. Hotel outlets
+  // share one converging hour instead (a hotel's outlets get busy together), set via kitchenRushHourIndex.
+  const rushHourIndex = cfg.kitchenRushHourIndex ?? argmax(cfg.hourlyProfile);
+  const isYesterday = (i: number) => i === dates.length - 1;
+  const capacity = capacityFor(LOCATIONS.find((l) => l.id === cfg.locationId)!, cfg.outletId);
+  // Deterministic per location so severities vary across tenants rather than all landing identically,
+  // but independent of the RNG stream and of which real-world weekday "yesterday" happens to be —
+  // the kitchen-load story needs to show up on the Today page every time the demo is opened.
+  const rushTargetRatio = 1.35 + (hashSeed(`kitchen-rush:${cfg.locationId}:${cfg.outletId ?? "x"}`) % 1000) / 1000 / 2.5; // 1.35–1.75
+
   dates.forEach((date, i) => {
     const trend = 1 + (i / dates.length) * 0.04;
     const exp = cfg.base * weekdayFactor(cfg, date) * trend;
@@ -100,12 +129,28 @@ export function generateSeries(cfg: SeriesConfig, dates: string[], anomalies: An
 
     const netSales = round2(exp * factor);
     const covers = Math.max(1, Math.round((netSales / cfg.avgCheck) * rng.noise(0.05)));
-    const orders = Math.max(1, Math.round(covers / cfg.partySize));
+    let orders = Math.max(1, Math.round(covers / cfg.partySize));
 
     const hourly = normalize(
       cfg.hourlyProfile.map((p) => p * rng.noise(0.18)),
       netSales,
     );
+    const orderWeights = cfg.hourlyProfile.map((p) => p * rng.noise(0.22));
+    let hourlyOrders: number[];
+    if (isYesterday(i)) {
+      // Yesterday, more of those covers came in as separate tickets (split checks, several delivery
+      // apps firing at once) — same guests, more tickets for the kitchen to fire. This is the "kitchen
+      // load" story: it doesn't show up as a sales spike, only as more tickets landing together. The
+      // rush hour is pinned to a fixed multiple of capacity so the story holds regardless of which
+      // weekday "yesterday" happens to be; every other hour still comes from the usual distribution.
+      const rushOrders = Math.max(1, Math.round(capacity * rushTargetRatio));
+      orders = Math.round(orders * 1.18) + rushOrders;
+      const otherWeights = orderWeights.map((w, idx) => (idx === rushHourIndex ? 0 : w));
+      const otherOrders = normalizeInt(otherWeights, orders - rushOrders);
+      hourlyOrders = otherOrders.map((v, idx) => (idx === rushHourIndex ? rushOrders : v));
+    } else {
+      hourlyOrders = normalizeInt(orderWeights, orders);
+    }
     const mix = CHANNELS.map((c) => cfg.channelMix[c] * (cfg.channelMix[c] ? rng.noise(0.12) : 0));
     // Weekend dinners skew dine-in; wet Mondays skew delivery. Keep it subtle.
     const chanVals = normalize(mix, netSales);
@@ -123,6 +168,7 @@ export function generateSeries(cfg: SeriesConfig, dates: string[], anomalies: An
       covers,
       orders,
       hourly,
+      hourlyOrders,
       channels,
       lastYearNetSales: lastYear,
     });

@@ -3,7 +3,8 @@ import { WEEKDAY_LONG, addDays, weekday } from "@/core/dates";
 import { hours, int, money, pct } from "@/core/format";
 import { flaggedShifts, labourPct } from "@/core/labour";
 import { reorderCost, reorderQty, sortByUrgency, stockStatus } from "@/core/inventory";
-import type { ItemTotal } from "@/core/sales";
+import { capacityFor, kitchenSeverity, peakKitchenLoad, peakWindowLabel } from "@/core/kitchen";
+import { channelShare, type ItemTotal } from "@/core/sales";
 import { Rng, hashSeed } from "./rng";
 
 export const AGENTS: Agent[] = [
@@ -21,6 +22,14 @@ export const AGENTS: Agent[] = [
     description: "Compares every day against its weekday baseline, flags drops and spikes, and reviews the menu weekly.",
     status: "active",
     schedule: "Daily at 5:15 AM, menu review Mondays",
+    defaultMode: "ask_first",
+  },
+  {
+    id: "kitchen-pacing",
+    name: "Kitchen Pacing",
+    description: "Watches ticket volume against the kitchen's pace and proposes ways to spread out a rush before it backs up service.",
+    status: "active",
+    schedule: "Daily at 5:20 AM",
     defaultMode: "ask_first",
   },
   {
@@ -106,6 +115,8 @@ export function generateRuns(c: RunContext): RunOutput {
   const earlyReorderDay = c.dates[c.dates.length - 10];
   const rejectedScheduleDay = c.dates[c.dates.length - 17];
   const errorDay = c.dates[c.dates.length - 13];
+  const kitchenDay = c.asOf; // the kitchen-load story is always fresh, so it always proposes on the latest day
+  const kitchenCapacity = capacityFor(loc);
 
   const urgent = sortByUrgency(c.stock).filter((s) => ["critical", "below_par"].includes(stockStatus(s)));
   const criticalItem = urgent[0];
@@ -314,6 +325,83 @@ export function generateRuns(c: RunContext): RunOutput {
         ...f,
         status,
         goal: `Catch anything unusual in ${wd}'s sales before the owner sees the numbers.`,
+        steps,
+        outcome,
+      });
+    }
+
+    // ---------------- Kitchen Pacing 05:20
+    {
+      const startedAt = localIso(runDate, 5, 20, rng.int(0, 40));
+      const peak = peakKitchenLoad(day, kitchenCapacity);
+      const severity = kitchenSeverity(peak.ratio);
+      const window = peakWindowLabel(peak.index);
+      const steps: AgentStep[] = [
+        {
+          index: 1,
+          title: "Fetch hourly ticket counts",
+          tool: "SalesSource.getSalesDays",
+          inputSummary: `location=${loc.id}, date=${date}, granularity=hourly`,
+          outputSummary: `Peak ${window}: ${int(peak.orders)} tickets`,
+          durationMs: ms(400, 900),
+          status: "ok",
+        },
+        {
+          index: 2,
+          title: "Compare against kitchen pace",
+          tool: "Kitchen.evaluate",
+          inputSummary: `capacity=${int(kitchenCapacity)} tickets/hour`,
+          outputSummary: severity
+            ? `${window} ran at ${Math.round(peak.ratio * 100)}% of pace, ${severity}`
+            : `Busiest hour ran at ${Math.round(peak.ratio * 100)}% of pace, within range`,
+          durationMs: ms(30, 90),
+          status: "ok",
+        },
+      ];
+      let status: AgentRun["status"] = "success";
+      let outcome: AgentRun["outcome"] = { kind: "no_action", summary: `${wd}'s rush stayed within the kitchen's pace.` };
+      if (severity) outcome = { kind: "alert_raised", summary: `${window} ran ${severity === "critical" ? "well past" : "past"} a comfortable pace. Noted in the morning brief.` };
+      if (date === kitchenDay && severity) {
+        const deliveryHeavy = channelShare(day, "delivery") > 0.15;
+        const lever = deliveryHeavy ? "pausing new DoorDash and Uber Eats orders for 20 minutes" : "holding new online orders for 15 minutes and seating only confirmed reservations";
+        const leverShort = deliveryHeavy ? "Pause DoorDash & Uber Eats" : "Pause online ordering";
+        steps.push({
+          index: 3,
+          title: "Propose pacing change",
+          tool: "Approvals.propose",
+          inputSummary: `${wd} ${window}, ${lever}`,
+          outputSummary: `Approval ${loc.id}-kitchen-1 created`,
+          durationMs: ms(50, 120),
+          status: "ok",
+        });
+        status = "needs_approval";
+        outcome = { kind: "approval_requested", summary: `Proposed ${lever} during ${wd}'s ${window} rush.` };
+        approvals.push({
+          id: `${loc.id}-kitchen-1`,
+          locationId: loc.id,
+          agentId: "kitchen-pacing",
+          runId: `${loc.id}:${runDate}:kitchen-pacing`,
+          title: `${leverShort} for 20 minutes during ${wd}'s ${window} rush`,
+          summary: `${wd} saw ${int(peak.orders)} tickets in the ${window} window against a comfortable pace of about ${int(kitchenCapacity)} an hour — ${Math.round((peak.ratio - 1) * 100)}% over. That did not show up as a bigger sales day, just more tickets landing at once. Going forward, ${lever} during that window should spread the rush out enough for the kitchen to keep up without turning guests away.`,
+          evidence: [
+            { label: `Tickets, ${window}`, value: `${int(peak.orders)} (pace ${int(kitchenCapacity)}/hr)`, href: "/sales/#kitchen-load" },
+            { label: "Over comfortable pace", value: `${Math.round((peak.ratio - 1) * 100)}%`, href: "/sales/#kitchen-load" },
+          ],
+          status: "pending",
+          proposedAt: startedAt,
+          confirmation: deliveryHeavy ? "Delivery platforms set to auto-pause for that window going forward." : "Online ordering set to hold new orders automatically during that window going forward.",
+          action: `Starting next ${wd}, ${lever} during the ${window} rush.`,
+        });
+      }
+      const f = finish(startedAt, steps);
+      runs.push({
+        id: `${loc.id}:${runDate}:kitchen-pacing`,
+        agentId: "kitchen-pacing",
+        locationId: loc.id,
+        startedAt,
+        ...f,
+        status,
+        goal: `Keep ${wd}'s busiest hour inside the kitchen's comfortable pace.`,
         steps,
         outcome,
       });

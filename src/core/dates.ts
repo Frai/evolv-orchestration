@@ -1,4 +1,5 @@
 // Pure date helpers over YYYY-MM-DD strings. Local-time free: everything is UTC-noon anchored.
+import { HOUR_START } from "./types";
 
 export function parseDate(d: string): Date {
   const [y, m, day] = d.split("-").map(Number);
@@ -43,7 +44,7 @@ export function todayISO(): string {
   return toISODate(new Date());
 }
 
-export function hourLabel(index: number, start = 11): string {
+export function hourLabel(index: number, start = HOUR_START): string {
   const h = start + index;
   return `${h.toString().padStart(2, "0")}:00`;
 }

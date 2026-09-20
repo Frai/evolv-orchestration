@@ -16,6 +16,7 @@ export function aggregateSalesDays(rows: SalesDay[], locationId: string): SalesD
         locationId,
         outletId: undefined,
         hourly: [...r.hourly],
+        hourlyOrders: [...r.hourlyOrders],
         channels: { ...r.channels },
       });
       continue;
@@ -26,7 +27,10 @@ export function aggregateSalesDays(rows: SalesDay[], locationId: string): SalesD
     cur.covers += r.covers;
     cur.orders += r.orders;
     cur.lastYearNetSales += r.lastYearNetSales;
-    for (let i = 0; i < HOUR_COUNT; i++) cur.hourly[i] += r.hourly[i];
+    for (let i = 0; i < HOUR_COUNT; i++) {
+      cur.hourly[i] += r.hourly[i];
+      cur.hourlyOrders[i] += r.hourlyOrders[i];
+    }
     for (const c of CHANNELS) cur.channels[c] += r.channels[c];
   }
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));

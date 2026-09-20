@@ -2,6 +2,7 @@ import type { LabourDay, Location, SalesDay } from "./types";
 import { WEEKDAY_LONG, weekday } from "./dates";
 import { deliveryShare, delta, findDay, peakHour, sameWeekdayBaseline } from "./sales";
 import { labourPct, labourPctBaseline } from "./labour";
+import { capacityFor, kitchenSeverity, peakKitchenLoad } from "./kitchen";
 
 export interface BriefInput {
   locationId: string;
@@ -27,6 +28,11 @@ export interface BriefInput {
   peakHourIndex: number;
   peakHourSales: number;
   channels: SalesDay["channels"];
+  kitchenPeakHourIndex: number;
+  kitchenPeakOrders: number;
+  kitchenCapacity: number;
+  kitchenPeakRatio: number;
+  kitchenSeverity: "critical" | "warning" | null;
 }
 
 /**
@@ -45,6 +51,8 @@ export function buildBriefInput(location: Location, date: string, salesDays: Sal
   const lpBase = labourPctBaseline(labourDays, salesDays, date);
   const peak = peakHour(day);
   const share = deliveryShare(day);
+  const capacity = capacityFor(location);
+  const kitchenPeak = peakKitchenLoad(day, capacity);
 
   return {
     locationId: location.id,
@@ -70,5 +78,10 @@ export function buildBriefInput(location: Location, date: string, salesDays: Sal
     peakHourIndex: peak.index,
     peakHourSales: peak.value,
     channels: day.channels,
+    kitchenPeakHourIndex: kitchenPeak.index,
+    kitchenPeakOrders: kitchenPeak.orders,
+    kitchenCapacity: capacity,
+    kitchenPeakRatio: kitchenPeak.ratio,
+    kitchenSeverity: kitchenSeverity(kitchenPeak.ratio),
   };
 }

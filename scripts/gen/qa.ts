@@ -4,6 +4,7 @@ import { int, money, pct, signedPct } from "@/core/format";
 import { deliveryShare, findDay, peakHour, sameWeekdayBaseline, type ItemTotal } from "@/core/sales";
 import { labourPct } from "@/core/labour";
 import { daysOfCover, reorderCost, reorderQty, sortByUrgency, stockStatus } from "@/core/inventory";
+import { capacityFor, kitchenSeverity, peakKitchenLoad, peakWindowLabel } from "@/core/kitchen";
 import { salesInWindow } from "./sales";
 
 export interface QAContext {
@@ -110,6 +111,24 @@ export function generateQA(c: QAContext): QAPair[] {
       answer: `Delivery was ${money(yesterday.channels.delivery)}, ${pct(share, 0)} of sales, against a usual ${pct(shareBase, 0)} on a ${WEEKDAY_LONG[weekday(asOf)]}. Takeout added ${money(yesterday.channels.takeout)} (${pct(yesterday.channels.takeout / yesterday.netSales, 0)}) and dine-in was ${money(yesterday.channels.dine_in)}. Delivery orders carry roughly a 25% platform commission, so ${money(yesterday.channels.delivery)} in delivery is worth about ${money(yesterday.channels.delivery * 0.75)} in the till.`,
     });
   }
+
+  // 7. Kitchen load
+  const capacity = capacityFor(location);
+  const kPeak = peakKitchenLoad(yesterday, capacity);
+  const kSeverity = kitchenSeverity(kPeak.ratio);
+  const window = peakWindowLabel(kPeak.index);
+  out.push({
+    locationId: location.id,
+    question: "Did the kitchen keep up yesterday?",
+    keywords: ["kitchen", "keep up", "behind", "slammed", "slow", "tickets", "backed up", "crash", "overwhelmed"],
+    answer: kSeverity
+      ? `Not entirely. ${window} saw ${int(kPeak.orders)} tickets against a comfortable pace of about ${int(capacity)} an hour, ${pct(kPeak.ratio - 1, 0)} over. ${
+          kSeverity === "critical"
+            ? "That is enough to put the kitchen behind for the rest of the shift."
+            : "That is close enough to normal that most tables probably didn't notice, but it's worth watching."
+        } The Kitchen Pacing agent has a standing proposal in Approvals to spread that window out.`
+      : `Yes. The busiest hour ran ${int(kPeak.orders)} tickets against a comfortable pace of about ${int(capacity)} an hour, ${pct(1 - kPeak.ratio, 0)} of headroom to spare.`,
+  });
 
   return out;
 }

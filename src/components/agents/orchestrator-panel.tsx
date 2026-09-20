@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 const AGENT_SHORT: Record<string, string> = {
   "morning-brief": "Brief",
   "sales-watch": "Sales",
+  "kitchen-pacing": "Kitchen",
   "labour-optimizer": "Labour",
   "inventory-guard": "Stock",
 };
@@ -17,7 +18,7 @@ export function OrchestratorPanel({ summary, loading, onSelectRun }: { summary: 
   if (loading || !summary) {
     return <Skeleton className="h-40" />;
   }
-  const lanes = ["inventory-guard", "sales-watch", "labour-optimizer", "morning-brief"].filter((id) => summary.runs.some((r) => r.agentId === id));
+  const lanes = ["inventory-guard", "sales-watch", "kitchen-pacing", "labour-optimizer", "morning-brief"].filter((id) => summary.runs.some((r) => r.agentId === id));
   const t0 = new Date(summary.runs[0]?.startedAt ?? 0).getTime();
   const start = Math.floor(t0 / 900000) * 900000; // snap to 15 min
   const end = start + 90 * 60000;

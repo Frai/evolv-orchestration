@@ -3,7 +3,8 @@ import { addDays, WEEKDAY_LONG, weekday } from "./dates";
 import { deadItems, delta, findDay, itemTotals, sameWeekdayBaseline } from "./sales";
 import { flaggedShifts, labourPct } from "./labour";
 import { stockStatus } from "./inventory";
-import { money, pct, signedPct } from "./format";
+import { capacityFor, kitchenSeverity, peakKitchenLoad, peakWindowLabel } from "./kitchen";
+import { int, money, pct, signedPct } from "./format";
 
 export interface AlertInput {
   location: Location;
@@ -51,6 +52,26 @@ export function detectAlerts(input: AlertInput): Alert[] {
         href: "/sales/",
         title: `Unusual spike: ${signedPct(d)} vs a typical ${wd}`,
         detail: `${money(day.netSales)} against a four-week ${wd} average of ${money(base ?? 0)}. No event on the calendar explains it.`,
+      });
+    }
+  }
+
+  if (day) {
+    const capacity = capacityFor(location);
+    const peak = peakKitchenLoad(day, capacity);
+    const severity = kitchenSeverity(peak.ratio);
+    if (severity) {
+      const ticketShare = day.orders ? peak.orders / day.orders : 0;
+      const salesShare = day.netSales ? day.hourly[peak.index] / day.netSales : 0;
+      const bunched = ticketShare > salesShare * 1.3;
+      push({
+        severity,
+        source: "kitchen",
+        href: "/sales/#kitchen-load",
+        title: severity === "critical" ? `Kitchen likely fell behind ${peakWindowLabel(peak.index)}` : `Kitchen ran hot ${peakWindowLabel(peak.index)}`,
+        detail: bunched
+          ? `${int(peak.orders)} tickets against a comfortable pace of about ${int(capacity)}/hour. Net sales that hour did not look unusual — this was orders bunching up, not a sales spike.`
+          : `${int(peak.orders)} tickets against a comfortable pace of about ${int(capacity)}/hour, driven by a genuinely busy hour rather than a one-off cluster of orders.`,
       });
     }
   }
