@@ -1,0 +1,1 @@
+export const INVENTORY_SOURCE = Symbol("INVENTORY_SOURCE");

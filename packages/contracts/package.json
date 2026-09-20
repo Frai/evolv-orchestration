@@ -1,0 +1,42 @@
+{
+  "name": "@evolv/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./types": { "types": "./dist/domain.d.ts", "default": "./dist/domain.js" },
+    "./ports": { "types": "./dist/ports/index.d.ts", "default": "./dist/ports/index.js" },
+    "./alerts": { "types": "./dist/core/alerts.d.ts", "default": "./dist/core/alerts.js" },
+    "./brief": { "types": "./dist/core/brief.d.ts", "default": "./dist/core/brief.js" },
+    "./dates": { "types": "./dist/core/dates.d.ts", "default": "./dist/core/dates.js" },
+    "./format": { "types": "./dist/core/format.d.ts", "default": "./dist/core/format.js" },
+    "./inventory": { "types": "./dist/core/inventory.d.ts", "default": "./dist/core/inventory.js" },
+    "./kitchen": { "types": "./dist/core/kitchen.d.ts", "default": "./dist/core/kitchen.js" },
+    "./labour": { "types": "./dist/core/labour.d.ts", "default": "./dist/core/labour.js" },
+    "./sales": { "types": "./dist/core/sales.d.ts", "default": "./dist/core/sales.js" }
+  },
+  "typesVersions": {
+    "*": {
+      "types": ["dist/domain.d.ts"],
+      "ports": ["dist/ports/index.d.ts"],
+      "alerts": ["dist/core/alerts.d.ts"],
+      "brief": ["dist/core/brief.d.ts"],
+      "dates": ["dist/core/dates.d.ts"],
+      "format": ["dist/core/format.d.ts"],
+      "inventory": ["dist/core/inventory.d.ts"],
+      "kitchen": ["dist/core/kitchen.d.ts"],
+      "labour": ["dist/core/labour.d.ts"],
+      "sales": ["dist/core/sales.d.ts"]
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}
