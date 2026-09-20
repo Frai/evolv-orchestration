@@ -19,7 +19,7 @@ const POS_LABEL = { toast: "Toast", square: "Square", lightspeed: "Lightspeed", 
 const CHANNEL_LABEL = { whatsapp: "WhatsApp", email: "Email", both: "WhatsApp & Email" } as const;
 
 export function TodayPage() {
-  const { location, locationId, outletId, asOf, settings } = useAppState();
+  const { location, locationId, outletId, asOf, settings, approvals, approvalsLoading } = useAppState();
   const loc = location!;
   const range = rangeEndingAt(asOf, 90);
 
@@ -92,7 +92,16 @@ export function TodayPage() {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div className="flex flex-col gap-4">
-          <BriefCard brief={brief.data} loading={brief.loading} />
+          <BriefCard
+            brief={brief.data}
+            loading={brief.loading}
+            input={input}
+            numbersLoading={numbers.loading}
+            pendingApprovals={approvals.filter((a) => a.status === "pending")}
+            approvalsLoading={approvalsLoading}
+            targetLabourPct={settings.targetLabourPct}
+            roomService={loc.type === "hotel"}
+          />
           <AskBox locationId={locationId} date={asOf} />
         </div>
         <Section title="Alerts" description="Rules run over the closed day. Tap one to see the source.">
