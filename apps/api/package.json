@@ -9,7 +9,8 @@
     "fixtures": "tsx src/fixtures/generate-fixtures.ts",
     "seed": "tsx scripts/seed-supabase.ts",
     "lint": "eslint \"src/**/*.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@evolv/contracts": "*",
@@ -31,6 +32,7 @@
     "eslint": "^9",
     "tsx": "^4.23.13",
     "typescript": "^5",
-    "typescript-eslint": "^8"
+    "typescript-eslint": "^8",
+    "vitest": "^3.2.4"
   }
 }
