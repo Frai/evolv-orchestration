@@ -5,5 +5,5 @@ export type { AccountingSource, CostSummary } from "./AccountingSource";
 export type { Narrator } from "./Narrator";
 export type { Notifier } from "./Notifier";
 export type { AgentRunner } from "./AgentRunner";
-export type { ApprovalQueue } from "./ApprovalQueue";
+export type { ApprovalQueue, ResolveApprovalInput } from "./ApprovalQueue";
 export type { IntegrationRegistry } from "./IntegrationRegistry";

@@ -1,13 +1,14 @@
 import { Injectable } from "@nestjs/common";
 import type { InventorySource } from "@evolv/contracts/ports";
 import type { StockLevel } from "@evolv/contracts/types";
-import { FixturesService, latency } from "../../fixtures/fixtures.service";
+import { latency } from "../../fixtures/fixtures.service";
+import { StockStoreService } from "../stock-store.service";
 
 @Injectable()
 export class MockInventorySource implements InventorySource {
-  constructor(private readonly fixtures: FixturesService) {}
+  constructor(private readonly stock: StockStoreService) {}
 
   async getStockLevels(locationId: string): Promise<StockLevel[]> {
-    return latency(this.fixtures.stock.filter((s) => s.locationId === locationId));
+    return latency(this.stock.list(locationId));
   }
 }

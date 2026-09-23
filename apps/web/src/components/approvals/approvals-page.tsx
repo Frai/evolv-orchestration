@@ -22,10 +22,11 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 export function ApprovalsPage() {
-  const { approvals, approvalsLoading, resolveApproval, editApproval, location, agentModes, setAgentMode } = useAppState();
+  const { approvals, approvalsLoading, resolveApproval, resolvingApprovalId, location, agentModes, setAgentMode } = useAppState();
   const agents = useAsync(() => apiClient.agents.listAgents(), []);
   const [editing, setEditing] = useState<Approval | null>(null);
   const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const pending = approvals.filter((a) => a.status === "pending");
   const done = approvals.filter((a) => a.status !== "pending").sort((a, b) => (b.resolvedAt ?? "").localeCompare(a.resolvedAt ?? ""));
@@ -54,8 +55,9 @@ export function ApprovalsPage() {
                   key={a.id}
                   approval={a}
                   agentName={agentName(a.agentId)}
-                  onApprove={() => resolveApproval(a.id, "approved")}
-                  onReject={() => resolveApproval(a.id, "rejected")}
+                  pending={resolvingApprovalId === a.id}
+                  onApprove={() => void resolveApproval(a.id, "approved").catch(() => {})}
+                  onReject={() => void resolveApproval(a.id, "rejected").catch(() => {})}
                   onEdit={() => {
                     setEditing(a);
                     setDraft(a.action);
@@ -108,19 +110,23 @@ export function ApprovalsPage() {
             <Textarea id="action" rows={4} value={draft} onChange={(e) => setDraft(e.target.value)} />
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setEditing(null)}>
+            <Button variant="ghost" onClick={() => setEditing(null)} disabled={saving}>
               Cancel
             </Button>
             <Button
-              onClick={() => {
-                if (editing) {
-                  editApproval(editing.id, draft.trim() || editing.action);
-                  resolveApproval(editing.id, "approved");
+              disabled={saving}
+              onClick={async () => {
+                if (!editing) return;
+                setSaving(true);
+                try {
+                  await resolveApproval(editing.id, "approved", draft.trim() || editing.action);
+                  setEditing(null);
+                } finally {
+                  setSaving(false);
                 }
-                setEditing(null);
               }}
             >
-              Save and approve
+              {saving ? "Saving…" : "Save and approve"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -129,7 +135,21 @@ export function ApprovalsPage() {
   );
 }
 
-function ApprovalCard({ approval: a, agentName, onApprove, onReject, onEdit }: { approval: Approval; agentName: string; onApprove?: () => void; onReject?: () => void; onEdit?: () => void }) {
+function ApprovalCard({
+  approval: a,
+  agentName,
+  pending,
+  onApprove,
+  onReject,
+  onEdit,
+}: {
+  approval: Approval;
+  agentName: string;
+  pending?: boolean;
+  onApprove?: () => void;
+  onReject?: () => void;
+  onEdit?: () => void;
+}) {
   const resolved = a.status !== "pending";
   return (
     <Card className={cn("gap-3 px-4", resolved && a.status === "rejected" && "opacity-80")}>
@@ -179,14 +199,14 @@ function ApprovalCard({ approval: a, agentName, onApprove, onReject, onEdit }: {
         </p>
       ) : (
         <div className="grid grid-cols-3 gap-2 sm:flex sm:justify-end">
-          <Button variant="outline" onClick={onReject}>
+          <Button variant="outline" onClick={onReject} disabled={pending}>
             <X /> Reject
           </Button>
-          <Button variant="outline" onClick={onEdit}>
+          <Button variant="outline" onClick={onEdit} disabled={pending}>
             <Pencil /> Edit
           </Button>
-          <Button onClick={onApprove}>
-            <Check /> Approve
+          <Button onClick={onApprove} disabled={pending}>
+            <Check /> {pending ? "Working…" : "Approve"}
           </Button>
         </div>
       )}

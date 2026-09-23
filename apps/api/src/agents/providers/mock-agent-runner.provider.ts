@@ -29,4 +29,27 @@ export class MockAgentRunner implements AgentRunner {
       runs: cycle,
     });
   }
+  async runNow(locationId: string, agentId: string): Promise<AgentRun> {
+    // Placeholder until the real agentic loop lands (see orchestrator/) — returns the most
+    // recent historical run for this agent/location so the endpoint and UI are exercisable now.
+    const runs = this.fixtures.runs.filter((r) => r.locationId === locationId && r.agentId === agentId);
+    const latest = runs.sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+    if (latest) return latency(latest, 400);
+    const now = new Date().toISOString();
+    return latency(
+      {
+        id: `${locationId}:${now}:${agentId}`,
+        agentId,
+        locationId,
+        startedAt: now,
+        finishedAt: now,
+        durationMs: 0,
+        status: "error",
+        goal: "Run this agent live.",
+        steps: [],
+        outcome: { kind: "error", summary: "Live runs aren't wired up for this agent yet." },
+      },
+      400,
+    );
+  }
 }

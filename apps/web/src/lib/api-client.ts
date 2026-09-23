@@ -21,7 +21,7 @@ import type {
   SalesDay,
   StockLevel,
 } from "@evolv/contracts/types";
-import type { CostSummary } from "@evolv/contracts/ports";
+import type { CostSummary, ResolveApprovalInput } from "@evolv/contracts/ports";
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
 
@@ -95,9 +95,11 @@ export const apiClient = {
     listRuns: (locationId: string, agentId?: string) => get<AgentRun[]>(`/agents/runs?${qs({ locationId, agentId })}`),
     getRun: (runId: string) => get<AgentRun | undefined>(`/agents/runs/${runId}`),
     lastCycle: (locationId: string) => get<OrchestratorSummary>(`/agents/last-cycle?${qs({ locationId })}`),
+    runNow: (locationId: string, agentId: string) => post<AgentRun>("/agents/run-now", { locationId, agentId }),
   },
   approvals: {
     listApprovals: (locationId: string) => get<Approval[]>(`/approvals?${qs({ locationId })}`),
+    resolve: (input: ResolveApprovalInput) => post<Approval>(`/approvals/${input.approvalId}/resolve`, { status: input.status, editedAction: input.editedAction }),
   },
   integrations: {
     listIntegrations: (locationId: string) => get<Integration[]>(`/integrations?${qs({ locationId })}`),

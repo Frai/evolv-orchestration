@@ -6,4 +6,6 @@ export interface AgentRunner {
   getRun(runId: string): Promise<AgentRun | undefined>;
   /** Summary of the most recent overnight cycle. */
   lastCycle(locationId: string): Promise<OrchestratorSummary>;
+  /** Runs one agent's cycle live, on demand, and persists the resulting run. */
+  runNow(locationId: string, agentId: string): Promise<AgentRun>;
 }

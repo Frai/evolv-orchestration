@@ -10,6 +10,8 @@ interface AppState {
   signIn: (email: string) => void;
   signOut: () => void;
 
+  resolvingApprovalId: string | null;
+
   locations: Location[];
   location: Location | undefined;
   locationId: string;
@@ -25,8 +27,7 @@ interface AppState {
   approvals: Approval[];
   approvalsLoading: boolean;
   pendingCount: number;
-  resolveApproval: (id: string, status: Exclude<ApprovalStatus, "pending">) => void;
-  editApproval: (id: string, action: string) => void;
+  resolveApproval: (id: string, status: Exclude<ApprovalStatus, "pending">, editedAction?: string) => Promise<void>;
   addApproval: (a: Approval) => void;
 
   integrations: Integration[];
@@ -116,20 +117,29 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   );
 
   const approvals = useMemo(() => approvalsByLoc[locationId] ?? [], [approvalsByLoc, locationId]);
+  const [resolvingApprovalId, setResolvingApprovalId] = useState<string | null>(null);
   const resolveApproval = useCallback(
-    (id: string, status: Exclude<ApprovalStatus, "pending">) => {
+    async (id: string, status: Exclude<ApprovalStatus, "pending">, editedAction?: string) => {
+      const loc = locationId;
+      const previous = approvalsByLoc[loc];
+      // Optimistic flip so the UI feels instant; reconciled with the server response below.
       setApprovalsByLoc((m) => ({
         ...m,
-        [locationId]: (m[locationId] ?? []).map((a) => (a.id === id ? { ...a, status, resolvedAt: new Date().toISOString() } : a)),
+        [loc]: (m[loc] ?? []).map((a) => (a.id === id ? { ...a, status, resolvedAt: new Date().toISOString(), action: editedAction ?? a.action } : a)),
       }));
+      setResolvingApprovalId(id);
+      try {
+        const resolved = await apiClient.approvals.resolve({ approvalId: id, status, editedAction });
+        setApprovalsByLoc((m) => ({ ...m, [loc]: (m[loc] ?? []).map((a) => (a.id === id ? resolved : a)) }));
+      } catch (err) {
+        // Revert on failure — the optimistic flip didn't actually happen server-side.
+        setApprovalsByLoc((m) => ({ ...m, [loc]: previous ?? m[loc] }));
+        throw err;
+      } finally {
+        setResolvingApprovalId((current) => (current === id ? null : current));
+      }
     },
-    [locationId],
-  );
-  const editApproval = useCallback(
-    (id: string, action: string) => {
-      setApprovalsByLoc((m) => ({ ...m, [locationId]: (m[locationId] ?? []).map((a) => (a.id === id ? { ...a, action } : a)) }));
-    },
-    [locationId],
+    [locationId, approvalsByLoc],
   );
   const addApproval = useCallback((a: Approval) => {
     setApprovalsByLoc((m) => ({ ...m, [a.locationId]: [a, ...(m[a.locationId] ?? []).filter((x) => x.id !== a.id)] }));
@@ -160,6 +170,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setSignedIn(false);
       setUserEmail(null);
     },
+    resolvingApprovalId,
     locations,
     location,
     locationId,
@@ -173,7 +184,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     approvalsLoading: !approvalsByLoc[locationId],
     pendingCount: approvals.filter((a) => a.status === "pending").length,
     resolveApproval,
-    editApproval,
     addApproval,
     integrations,
     integrationsLoading: !integrationsByLoc[locationId],

@@ -9,6 +9,7 @@ import { NotifierModule } from "./notifier/notifier.module";
 import { AgentsModule } from "./agents/agents.module";
 import { ApprovalsModule } from "./approvals/approvals.module";
 import { IntegrationsModule } from "./integrations/integrations.module";
+import { PurchaseOrdersModule } from "./purchase-orders/purchase-orders.module";
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { IntegrationsModule } from "./integrations/integrations.module";
     AgentsModule,
     ApprovalsModule,
     IntegrationsModule,
+    PurchaseOrdersModule,
   ],
 })
 export class AppModule {}

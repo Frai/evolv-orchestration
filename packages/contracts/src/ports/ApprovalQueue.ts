@@ -1,6 +1,14 @@
-import type { Approval } from "../domain";
+import type { Approval, ApprovalStatus } from "../domain";
+
+export interface ResolveApprovalInput {
+  approvalId: string;
+  status: Extract<ApprovalStatus, "approved" | "rejected">;
+  /** Present when resolved via the Edit flow; overwrites Approval.action before execution. */
+  editedAction?: string;
+}
 
 export interface ApprovalQueue {
-  /** Initial queue as proposed by agents. Resolution state lives in the app session. */
   listApprovals(locationId: string): Promise<Approval[]>;
+  /** Persists the decision and, if approved, triggers downstream execution before returning. */
+  resolve(input: ResolveApprovalInput): Promise<Approval>;
 }

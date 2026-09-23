@@ -218,6 +218,8 @@ export interface Approval {
   title: string;
   summary: string;
   amount?: number;
+  /** Machine-readable reference to the stock item being reordered, when this is an inventory-guard proposal. */
+  itemId?: string;
   evidence: ApprovalEvidence[];
   status: ApprovalStatus;
   proposedAt: string;
