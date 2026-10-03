@@ -47,7 +47,12 @@ describe("buildBriefInput", () => {
 
   it("rolls up unbilled work, change-order exposure and overtime", () => {
     const extra = code({ id: "x", budget: 0, plannedQty: 0, extra: true });
-    const b = buildBriefInput(data({ codes: [code(), extra], costDays: [...data().costDays, day({ codeId: "x", date: "2026-01-08", cost: 12_000, hours: 40 })] }))!;
+    const costDays = [
+      day({ date: "2026-01-09", qty: 30, cost: 45_000, hours: 100, overtimeHours: 30 }),
+      day({ date: "2026-01-20", cost: 12_000, hours: 40, codeId: "x" }),
+      day({ date: "2026-01-22", cost: 9_000, hours: 100, overtimeHours: 30 }),
+    ];
+    const b = buildBriefInput(data({ date: "2026-01-24", codes: [code(), extra], costDays }))!;
     expect(b.unbilledWork).toBeGreaterThan(0);
     expect(b.missingChangeOrderCost).toBe(12_000);
     expect(b.overtimePct).toBeCloseTo(30 / 140); // the extra-work hours count in the denominator

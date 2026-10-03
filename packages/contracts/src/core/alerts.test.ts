@@ -27,6 +27,9 @@ describe("detectAlerts: healthy job", () => {
   it("raises nothing", () => {
     expect(detectAlerts(baseInput())).toEqual([]);
   });
+  it("does not call work billing-late while it is still inside the normal billing cycle", () => {
+    expect(sources(baseInput({ date: "2026-01-12", invoices: [] }))).not.toContain("billing");
+  });
 });
 
 describe("margin erosion", () => {
@@ -69,8 +72,9 @@ describe("overtime", () => {
 });
 
 describe("billing lag", () => {
-  it("warns when much more has been earned than invoiced", () => {
-    const input = baseInput({ invoices: [] });
+  it("warns when much more has been earned than invoiced, counting only work older than the billing cycle", () => {
+    // 50% complete by 2026-01-03; two weeks later that work is overdue to bill.
+    const input = baseInput({ date: "2026-01-20", invoices: [] });
     const a = detectAlerts(input).find((x) => x.source === "billing");
     expect(a?.severity).toBe("critical");
     expect(a?.owner).toBe("Controller");
@@ -161,8 +165,9 @@ describe("safety", () => {
 describe("ordering", () => {
   it("sorts critical before warning before info", () => {
     const input = baseInput({
+      date: "2026-01-20",
       invoices: [],
-      equipment: [{ id: "e", jobId: "job-1", name: "Loader", type: "loader", ownership: "owned", dailyRate: 1, usageHours14: Array(14).fill(9), serviceDueDate: "2026-01-07" }],
+      equipment: [{ id: "e", jobId: "job-1", name: "Loader", type: "loader", ownership: "owned", dailyRate: 1, usageHours14: Array(14).fill(9), serviceDueDate: "2026-01-22" }],
     });
     const sev = detectAlerts(input).map((a) => a.severity);
     expect(sev).toEqual([...sev].sort((a, b) => ({ critical: 0, warning: 1, info: 2 })[a] - ({ critical: 0, warning: 1, info: 2 })[b]));

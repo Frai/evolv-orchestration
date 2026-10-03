@@ -3,6 +3,9 @@ import { WEEKDAY_LONG, addDays, weekday } from "./dates";
 import { jobEvm, portfolioMargin, trailingCpi, type JobEvm } from "./evm";
 import { overtimePct } from "./labour";
 import { billingLag, missingChangeOrders, ticketLeakage } from "./billing";
+import { RULES } from "./alerts";
+
+const BILLING_GRACE_DAYS = RULES.billingGraceDays;
 
 export interface BriefJob {
   jobId: string;
@@ -73,7 +76,8 @@ export function buildBriefInput(data: BriefData): BriefInput | null {
   }));
   const worstJob = [...briefJobs].sort((a, b) => a.marginAtCompletion - b.marginAtCompletion)[0] ?? null;
 
-  const unbilledWork = jobs.reduce((a, j, i) => a + billingLag(j, evms[i], invoices).lag, 0);
+  const graceDate = addDays(date, -BILLING_GRACE_DAYS);
+  const unbilledWork = jobs.reduce((a, j) => a + billingLag(j, jobEvm(j, codes, costDays, graceDate), invoices).lag, 0);
   const ticketsAtRisk = ticketLeakage(tickets, date).atRisk;
   const missing = missingChangeOrders(codes, costDays, changeOrders, date).reduce((a, m) => a + m.cost, 0);
   const week = { from: addDays(date, -6), to: date };

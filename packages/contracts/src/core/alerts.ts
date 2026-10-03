@@ -36,6 +36,8 @@ export const RULES = {
   overtimeMinHours: 200,
   overtimeWindowDays: 7,
   changeOrderCriticalCost: 50_000,
+  /** Normal progress-billing cycle: work earned more recently than this is not yet late to invoice. */
+  billingGraceDays: 14,
   billingLagPct: 0.1,
   billingLagMin: 100_000,
   billingLagCriticalPct: 0.2,
@@ -137,7 +139,7 @@ export function detectAlerts(input: AlertInput): Alert[] {
     }
 
     // Billing lag
-    const lag = billingLag(job, evm, invoices);
+    const lag = billingLag(job, jobEvm(job, codes, costDays, addDays(date, -RULES.billingGraceDays)), invoices);
     if (lag.lagPct >= RULES.billingLagPct && lag.lag >= RULES.billingLagMin) {
       push({
         severity: lag.lagPct >= RULES.billingLagCriticalPct ? "critical" : "warning",

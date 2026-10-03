@@ -1,87 +1,147 @@
-import type { Agent, AgentRun, AgentStep, Alert, Approval, LabourDay, Location, SalesDay, StockLevel } from "@evolv/contracts/types";
-import { WEEKDAY_LONG, addDays, weekday } from "@evolv/contracts/dates";
-import { hours, int, money, pct } from "@evolv/contracts/format";
-import { flaggedShifts, labourPct } from "@evolv/contracts/labour";
-import { reorderCost, reorderQty, sortByUrgency, stockStatus } from "@evolv/contracts/inventory";
-import { capacityFor, kitchenSeverity, peakKitchenLoad, peakWindowLabel } from "@evolv/contracts/kitchen";
-import { channelShare, type ItemTotal } from "@evolv/contracts/sales";
+import type { Agent, AgentRun, AgentStep, Alert, Approval, AlertSource, Company, Job } from "@evolv/contracts/types";
+import type { AlertInput } from "@evolv/contracts/alerts";
+import { addDays } from "@evolv/contracts/dates";
+import { missingChangeOrders } from "@evolv/contracts/billing";
+import { int, money, moneyCompact } from "@evolv/contracts/format";
 import { Rng, hashSeed } from "./rng";
 
 export const AGENTS: Agent[] = [
   {
-    id: "morning-brief",
-    name: "Morning Brief",
-    description: "Reads yesterday's sales and labour, writes the brief, and delivers it before you open the app.",
+    id: "daily-brief",
+    name: "Daily Brief",
+    description: "Reads yesterday's job cost and field progress, writes the margin brief, and delivers it before the morning huddle.",
     status: "active",
     schedule: "Daily at 5:45 AM",
     defaultMode: "auto",
   },
   {
-    id: "sales-watch",
-    name: "Sales Watch",
-    description: "Compares every day against its weekday baseline, flags drops and spikes, and reviews the menu weekly.",
+    id: "margin-sentinel",
+    name: "Margin Sentinel",
+    description: "Tracks earned value per cost code and flags a job drifting off its budget days before the month-end report does.",
     status: "active",
-    schedule: "Daily at 5:15 AM, menu review Mondays",
+    schedule: "Nightly at 11:30 PM",
     defaultMode: "ask_first",
   },
   {
-    id: "kitchen-pacing",
-    name: "Kitchen Pacing",
-    description: "Watches ticket volume against the kitchen's pace and proposes ways to spread out a rush before it backs up service.",
+    id: "labor-analyst",
+    name: "Labor Analyst",
+    description: "Watches hours, overtime and crew size against the estimate and proposes crew reallocation when they diverge.",
+    status: "active",
+    schedule: "Daily at 5:10 AM",
+    defaultMode: "ask_first",
+  },
+  {
+    id: "change-order-catcher",
+    name: "Change-Order Catcher",
+    description: "Spots hours and cost booked to out-of-scope work with no change order, and drafts the request with the backup attached.",
     status: "active",
     schedule: "Daily at 5:20 AM",
     defaultMode: "ask_first",
   },
   {
-    id: "labour-optimizer",
-    name: "Labour Optimizer",
-    description: "Checks the upcoming schedule against hourly sales and proposes shift changes when staffing drifts from demand.",
+    id: "billing-accelerator",
+    name: "Billing Accelerator",
+    description: "Compares work performed with work invoiced, assembles progress billing packages, and chases unsigned or unsubmitted field tickets.",
     status: "active",
     schedule: "Daily at 5:30 AM",
     defaultMode: "ask_first",
   },
   {
-    id: "inventory-guard",
-    name: "Inventory Guard",
-    description: "Watches par levels and days of cover, and drafts reorders with your suppliers before you run out.",
+    id: "materials-watcher",
+    name: "Materials Watcher",
+    description: "Compares vendor promise dates with the dates the schedule needs material on site, and drafts expedite requests.",
     status: "active",
     schedule: "Daily at 5:00 AM",
     defaultMode: "ask_first",
   },
   {
-    id: "guest-pulse",
-    name: "Guest Pulse",
-    description: "Reads reviews and reservation notes to surface what guests are saying about service, food and wait times.",
-    status: "coming_soon",
-    schedule: "Weekly",
-    defaultMode: "auto",
+    id: "safety-coordinator",
+    name: "Safety Coordinator",
+    description: "Routes inspection findings and corrective actions to the right owner with reminders and escalation. Routes only: supervisors always make the safety decisions.",
+    status: "active",
+    schedule: "Daily at 6:00 AM",
+    defaultMode: "ask_first",
   },
   {
-    id: "finance-insights",
-    name: "Finance Insights",
-    description: "Pulls your accounting data to show prime cost, cash position and month-end forecasts.",
+    id: "equipment-dispatcher",
+    name: "Equipment Dispatcher",
+    description: "Watches utilization, rental burn and maintenance conflicts, and proposes moving or returning units.",
+    status: "coming_soon",
+    schedule: "Daily",
+    defaultMode: "ask_first",
+  },
+  {
+    id: "cash-forecaster",
+    name: "Cash Forecaster",
+    description: "Combines receivables aging, the payroll calendar and open commitments into an early cash-pressure warning.",
     status: "coming_soon",
     schedule: "Weekly",
     defaultMode: "auto",
   },
 ];
 
-export interface RunContext {
-  location: Location;
-  dates: string[];
-  asOf: string;
-  salesDays: SalesDay[];
-  labourDays: LabourDay[];
-  stock: StockLevel[];
-  alertsByDate: Map<string, Alert[]>;
-  deadItems: ItemTotal[];
-  overstaffedTuesdays: string[];
-  recipients: string[];
-  channelLabel: string;
-  sevenShifts: boolean;
+interface AgentPlan {
+  sources: AlertSource[];
+  steps: { title: string; tool: string; input: (n: number) => string; output: (n: number) => string }[];
 }
 
-/** Local ISO timestamp for Calgary (MDT in the demo window). */
+const PLANS: Record<string, AgentPlan> = {
+  "margin-sentinel": {
+    sources: ["margin"],
+    steps: [
+      { title: "Load estimate and job cost", tool: "ProjectSource.getCostCodes", input: (n) => `${n} active jobs`, output: () => "Budget at completion per cost code" },
+      { title: "Compute earned value", tool: "evm.jobEvm", input: () => "All cost codes, as of last night", output: () => "CPI, SPI and EAC per code and job" },
+      { title: "Check trailing 14-day cost performance", tool: "evm.trailingCodeCpi", input: () => "Rule: sustained CPI below 0.90", output: (n) => (n ? `${n} signals over threshold` : "No code over threshold") },
+    ],
+  },
+  "labor-analyst": {
+    sources: ["labour"],
+    steps: [
+      { title: "Load crew hours", tool: "ProjectSource.getCostDays", input: (n) => `${n} jobs, last 7 days`, output: () => "Regular and overtime hours by cost code" },
+      { title: "Compute overtime share", tool: "labour.overtimePct", input: () => "Rule: over 18% of hours", output: (n) => (n ? `${n} jobs over threshold` : "All jobs under threshold") },
+    ],
+  },
+  "change-order-catcher": {
+    sources: ["change_orders"],
+    steps: [
+      { title: "Find extra-work cost codes", tool: "ProjectSource.getCostCodes", input: (n) => `${n} jobs`, output: () => "Codes outside the original estimate" },
+      { title: "Match against change orders on file", tool: "BillingSource.getChangeOrders", input: () => "Pending, approved and rejected", output: (n) => (n ? `${n} uncovered` : "All covered") },
+    ],
+  },
+  "billing-accelerator": {
+    sources: ["billing", "tickets"],
+    steps: [
+      { title: "Compare earned work with invoiced work", tool: "BillingSource.getInvoices", input: (n) => `${n} jobs, 14-day billing cycle`, output: () => "Earned vs invoiced per job" },
+      { title: "Scan field tickets by status", tool: "BillingSource.getFieldTickets", input: () => "Open, signed, submitted, disputed", output: (n) => (n ? `${n} items stuck` : "Nothing stuck") },
+    ],
+  },
+  "materials-watcher": {
+    sources: ["materials"],
+    steps: [
+      { title: "Load open commitments", tool: "ResourceSource.getCommitments", input: (n) => `${n} jobs`, output: () => "Promised vs needed dates" },
+      { title: "Check float against need dates", tool: "resources.materialsAtRisk", input: () => "Rule: promised after need date", output: (n) => (n ? `${n} commitments at risk` : "All on time") },
+    ],
+  },
+  "safety-coordinator": {
+    sources: ["safety"],
+    steps: [
+      { title: "Load open corrective actions", tool: "SafetySource.getSafetyEvents", input: (n) => `${n} jobs`, output: () => "Findings, near-misses and incidents" },
+      { title: "Check due dates", tool: "resources.overdueSafety", input: () => "Rule: open past due date", output: (n) => (n ? `${n} overdue, routed to owner` : "None overdue") },
+    ],
+  },
+};
+
+const APPROVAL_AGENT: Record<string, string> = {
+  margin: "margin-sentinel",
+  labour: "labor-analyst",
+  change_orders: "change-order-catcher",
+  billing: "billing-accelerator",
+  tickets: "billing-accelerator",
+  materials: "materials-watcher",
+  safety: "safety-coordinator",
+};
+
+/** Local ISO timestamp for Alberta (MDT in the demo window). */
 export function localIso(date: string, hh: number, mm: number, ss = 0): string {
   return `${date}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}-06:00`;
 }
@@ -91,505 +151,265 @@ function finish(startedAt: string, steps: AgentStep[]): { finishedAt: string; du
   return { finishedAt: new Date(new Date(startedAt).getTime() + total).toISOString(), durationMs: total };
 }
 
+export interface RunContext {
+  company: Company;
+  jobs: Job[];
+  asOf: string;
+  alerts: Alert[];
+  input: AlertInput;
+  recipients: string[];
+  channelLabel: string;
+}
+
 export interface RunOutput {
   runs: AgentRun[];
   approvals: Approval[];
 }
 
+const RUN_DAYS = 7;
+const START_MINUTE: Record<string, [number, number]> = {
+  "materials-watcher": [5, 0],
+  "labor-analyst": [5, 10],
+  "change-order-catcher": [5, 20],
+  "billing-accelerator": [5, 30],
+  "daily-brief": [5, 45],
+  "safety-coordinator": [6, 0],
+  "margin-sentinel": [23, 30],
+};
+
 export function generateRuns(c: RunContext): RunOutput {
-  const rng = new Rng(hashSeed(`runs:${c.location.id}`));
+  const rng = new Rng(hashSeed(`runs:${c.company.id}`));
+  const { company, asOf, alerts } = c;
   const runs: AgentRun[] = [];
-  const approvals: Approval[] = [];
-  const loc = c.location;
-  const last30 = c.dates.slice(-30);
+  const approvals = buildApprovals(c);
+  const jobName = new Map(c.jobs.map((j) => [j.id, j.name]));
   const ms = (a: number, b: number) => rng.int(a, b);
+  const step = (index: number, title: string, tool: string, inputSummary: string, outputSummary: string, durationMs: number): AgentStep => ({
+    index,
+    title,
+    tool,
+    inputSummary,
+    outputSummary,
+    durationMs,
+    status: "ok",
+  });
 
-  // Days on which each planted approval was proposed.
-  const reorderDay = c.asOf; // last night
-  const scheduleDay = c.overstaffedTuesdays[0]; // the morning after the most recent overstaffed Tuesday
-  const menuDay = (() => {
-    // The most recent Monday review, at least 2 days back.
-    for (let i = c.dates.length - 3; i >= 0; i--) if (weekday(c.dates[i]) === 0) return c.dates[i]; // runs Monday morning for Sunday's close
-    return c.dates[c.dates.length - 3];
-  })();
-  const earlyReorderDay = c.dates[c.dates.length - 10];
-  const rejectedScheduleDay = c.dates[c.dates.length - 17];
-  const errorDay = c.dates[c.dates.length - 13];
-  const kitchenDay = c.asOf; // the kitchen-load story is always fresh, so it always proposes on the latest day
-  const kitchenCapacity = capacityFor(loc);
+  const dates = Array.from({ length: RUN_DAYS }, (_, i) => addDays(asOf, -(RUN_DAYS - 1 - i)));
+  for (const date of dates) {
+    const isLatest = date === asOf;
+    const runDate = addDays(date, 1);
+    const daysBack = RUN_DAYS - 1 - dates.indexOf(date);
 
-  const urgent = sortByUrgency(c.stock).filter((s) => ["critical", "below_par"].includes(stockStatus(s)));
-  const criticalItem = urgent[0];
-
-  for (const date of last30) {
-    const runDate = addDays(date, 1); // agents run early the next morning
-    const day = c.salesDays.find((d) => d.date === date)!;
-    const labour = c.labourDays.find((l) => l.date === date);
-    const alerts = c.alertsByDate.get(date) ?? [];
-    const lp = labourPct(labour, day);
-    const wd = WEEKDAY_LONG[weekday(date)];
-
-    // ---------------- Inventory Guard 05:00
+    // Daily Brief
     {
-      const startedAt = localIso(runDate, 5, 0, rng.int(0, 40));
-      const isLast = date === reorderDay;
-      const isEarly = date === earlyReorderDay;
-      const belowCount = isLast ? urgent.length : isEarly ? 2 : rng.chance(0.15) ? 1 : 0;
+      const startedAt = localIso(runDate, 5, 45, ms(0, 40));
       const steps: AgentStep[] = [
-        {
-          index: 1,
-          title: "Pull current stock counts",
-          tool: "InventorySource.getStockLevels",
-          inputSummary: `location=${loc.id}`,
-          outputSummary: `${c.stock.length} tracked items, last counted ${date} 23:10`,
-          durationMs: ms(380, 900),
-          status: "ok",
-        },
-        {
-          index: 2,
-          title: "Compare against par and days of cover",
-          tool: "Inventory.evaluate",
-          inputSummary: `${c.stock.length} items, rule: on hand < par`,
-          outputSummary: isLast
-            ? `${urgent.length} below par, ${urgent.filter((u) => stockStatus(u) === "critical").length} critical (${criticalItem.name}: ${criticalItem.onHand} ${criticalItem.unit} vs par ${criticalItem.par})`
-            : belowCount
-              ? `${belowCount} below par, 0 critical`
-              : "All items at or above par",
-          durationMs: ms(40, 120),
-          status: "ok",
-        },
+        step(1, "Read job cost and field progress", "ProjectSource.getCostDays", `${c.jobs.length} jobs, 90 days`, `Cost days through ${date}`, ms(380, 720)),
+        step(2, "Compute earned value and signals", "evm.jobEvm", "All cost codes", `${alerts.filter((a) => a.severity !== "info").length} signals above info`, ms(220, 480)),
+        step(3, "Write the brief", "Narrator.compose", "Margin, cost drivers, cash, labour", "4 to 5 short paragraphs, numbers first", ms(1100, 2300)),
+        step(4, "Deliver", "Notifier.send", c.channelLabel, `Sent to ${c.recipients[0]}`, ms(240, 520)),
       ];
-      let status: AgentRun["status"] = "success";
-      let outcome: AgentRun["outcome"] = { kind: "no_action", summary: "Stock within par. Nothing to order." };
-      if (isLast) {
-        const q = reorderQty(criticalItem);
-        const cost = reorderCost(criticalItem);
-        steps.push({
-          index: 3,
-          title: "Draft reorder for approval",
-          tool: "Approvals.propose",
-          inputSummary: `${criticalItem.name}, ${q} ${criticalItem.unit}, ${criticalItem.supplier}`,
-          outputSummary: `Approval ${loc.id}-reorder-1 created (${money(cost)})`,
-          durationMs: ms(60, 140),
-          status: "ok",
-        });
-        status = "needs_approval";
-        outcome = { kind: "approval_requested", summary: `Reorder ${q} ${criticalItem.unit} ${criticalItem.name} from ${criticalItem.supplier} (${money(cost)}) is waiting for approval.` };
-        const runId = `${loc.id}:${runDate}:inventory-guard`;
-        approvals.push({
-          id: `${loc.id}-reorder-1`,
-          locationId: loc.id,
-          agentId: "inventory-guard",
-          runId,
-          itemId: criticalItem.itemId,
-          title: `Reorder ${q} ${criticalItem.unit} ${criticalItem.name.toLowerCase()} from ${criticalItem.supplier} (${money(cost)})`,
-          summary: `${criticalItem.name} is at ${criticalItem.onHand} ${criticalItem.unit} against a par of ${criticalItem.par}, with ${(criticalItem.onHand / criticalItem.dailyUsage).toFixed(1)} days of cover at ${criticalItem.dailyUsage} ${criticalItem.unit}/day. ${criticalItem.supplier} delivers next morning on orders placed before 2 PM.`,
-          amount: cost,
-          evidence: [
-            { label: "On hand", value: `${criticalItem.onHand} ${criticalItem.unit}`, href: "/inventory/" },
-            { label: "Par level", value: `${criticalItem.par} ${criticalItem.unit}`, href: "/inventory/" },
-            { label: "Daily usage", value: `${criticalItem.dailyUsage} ${criticalItem.unit}/day`, href: "/inventory/" },
-            { label: "Days of cover", value: `${(criticalItem.onHand / criticalItem.dailyUsage).toFixed(1)}`, href: "/inventory/" },
-            { label: "Unit cost", value: `${money(criticalItem.unitCost)}/${criticalItem.unit}`, href: "/inventory/" },
-          ],
-          status: "pending",
-          proposedAt: startedAt,
-          confirmation: `Sent to ${criticalItem.supplier} via email. Delivery expected tomorrow before 10 AM.`,
-          action: `Email purchase order to ${criticalItem.supplier}: ${q} ${criticalItem.unit} ${criticalItem.name.toLowerCase()}, deliver next morning.`,
-        });
-      } else if (isEarly) {
-        const item = c.stock[3];
-        const q = reorderQty(item);
-        const cost = reorderCost(item);
-        steps.push({
-          index: 3,
-          title: "Draft reorder for approval",
-          tool: "Approvals.propose",
-          inputSummary: `${item.name}, ${q} ${item.unit}, ${item.supplier}`,
-          outputSummary: `Approval ${loc.id}-reorder-0 created (${money(cost)})`,
-          durationMs: ms(60, 140),
-          status: "ok",
-        });
-        status = "needs_approval";
-        outcome = { kind: "approval_requested", summary: `Reorder ${q} ${item.unit} ${item.name} from ${item.supplier} (${money(cost)}) was approved the same morning.` };
-        approvals.push({
-          id: `${loc.id}-reorder-0`,
-          locationId: loc.id,
-          agentId: "inventory-guard",
-          runId: `${loc.id}:${runDate}:inventory-guard`,
-          itemId: item.itemId,
-          title: `Reorder ${q} ${item.unit} ${item.name.toLowerCase()} from ${item.supplier} (${money(cost)})`,
-          summary: `${item.name} dropped to 60% of par after a busy weekend.`,
-          amount: cost,
-          evidence: [
-            { label: "On hand at the time", value: `${Math.round(item.par * 0.6)} ${item.unit}`, href: "/inventory/" },
-            { label: "Par level", value: `${item.par} ${item.unit}`, href: "/inventory/" },
-          ],
-          status: "approved",
-          proposedAt: startedAt,
-          resolvedAt: localIso(runDate, 7, 12),
-          confirmation: `Sent to ${item.supplier} via email. Delivered ${addDays(runDate, 1)}.`,
-          action: `Email purchase order to ${item.supplier}: ${q} ${item.unit} ${item.name.toLowerCase()}.`,
-        });
-      } else if (belowCount) {
-        outcome = { kind: "no_action", summary: `${belowCount} item slightly below par, more than 3 days of cover. Will re-check tomorrow.` };
-      }
-      const f = finish(startedAt, steps);
       runs.push({
-        id: `${loc.id}:${runDate}:inventory-guard`,
-        agentId: "inventory-guard",
-        locationId: loc.id,
+        id: `${company.id}:${date}:daily-brief`,
+        agentId: "daily-brief",
+        companyId: company.id,
         startedAt,
-        ...f,
+        ...finish(startedAt, steps),
+        status: "success",
+        goal: "Write and deliver the daily margin brief.",
+        steps,
+        outcome: { kind: "brief_sent", summary: `Brief for ${date} sent via ${c.channelLabel}.` },
+      });
+    }
+
+    for (const agent of AGENTS) {
+      const plan = PLANS[agent.id];
+      if (!plan) continue;
+      const [hh, mm] = START_MINUTE[agent.id];
+      const startedAt = localIso(agent.id === "margin-sentinel" ? date : runDate, hh, mm, ms(0, 40));
+      const mine = alerts.filter((a) => plan.sources.includes(a.source));
+      const hit = isLatest ? mine : daysBack <= 3 ? mine.filter((a) => a.severity === "critical") : [];
+      const pending = isLatest ? approvals.filter((a) => a.agentId === agent.id && a.status === "pending") : [];
+
+      // One planted error: a late export, recovered on retry.
+      const isError = company.id === "peace-river-oilfield" && agent.id === "billing-accelerator" && daysBack === 4;
+
+      const steps: AgentStep[] = plan.steps.map((s, i) => ({
+        index: i + 1,
+        title: s.title,
+        tool: s.tool,
+        inputSummary: s.input(c.jobs.length),
+        outputSummary: s.output(hit.length),
+        durationMs: ms(180, 900),
+        status: "ok" as const,
+      }));
+      if (isError) {
+        steps[1] = { ...steps[1], status: "error", outputSummary: "FieldCap export had not arrived by 05:30", durationMs: 30_000 };
+        steps.push(step(3, "Retry and flag staleness", "BillingSource.getFieldTickets", "Retry at 06:15", "Succeeded on retry; numbers marked as of 06:15", ms(900, 1400)));
+      }
+      if (pending.length) {
+        steps.push(step(steps.length + 1, "Draft action for approval", "ApprovalQueue.propose", pending[0].title, "Queued for your approval", ms(120, 300)));
+      }
+
+      let status: AgentRun["status"] = "success";
+      let outcome: AgentRun["outcome"] = { kind: "no_action", summary: "Nothing over threshold. No action needed." };
+      if (isError) {
+        status = "error";
+        outcome = { kind: "error", summary: "Field-ticket export arrived late. Ran again at 06:15 and the numbers are marked as of then." };
+      } else if (pending.length) {
+        status = "needs_approval";
+        outcome = { kind: "approval_requested", summary: pending.map((p) => p.title).join("; ") };
+      } else if (hit.length) {
+        outcome = { kind: "alert_raised", summary: isLatest ? hit[0].title : `Still open: ${hit[0].title}` };
+      }
+      runs.push({
+        id: `${company.id}:${date}:${agent.id}`,
+        agentId: agent.id,
+        companyId: company.id,
+        startedAt,
+        ...finish(startedAt, steps),
         status,
-        goal: `Make sure nothing runs out before the next delivery window.`,
+        goal: agent.description,
         steps,
         outcome,
       });
     }
+  }
+  void jobName;
+  return { runs, approvals };
+}
 
-    // ---------------- Sales Watch 05:15
-    {
-      const startedAt = localIso(runDate, 5, 15, rng.int(0, 40));
-      const salesAlerts = alerts.filter((a) => a.source === "sales");
-      const isMenuReview = date === menuDay;
-      const steps: AgentStep[] = [
-        {
-          index: 1,
-          title: "Fetch 90 days of sales",
-          tool: "SalesSource.getSalesDays",
-          inputSummary: `location=${loc.id}, range=${addDays(date, -89)}..${date}`,
-          outputSummary: `90 days · ${wd} ${date}: ${money(day.netSales)} net, ${int(day.covers)} covers`,
-          durationMs: ms(600, 1400),
-          status: "ok",
-        },
-        {
-          index: 2,
-          title: "Evaluate against weekday baseline",
-          tool: "Alerts.detect",
-          inputSummary: `rules: drop ≤ −15%, spike ≥ +25%, dead items < 2/wk`,
-          outputSummary: salesAlerts.length ? salesAlerts.map((a) => a.title).join("; ") : "Within normal range",
-          durationMs: ms(30, 90),
-          status: "ok",
-        },
-      ];
-      let status: AgentRun["status"] = "success";
-      let outcome: AgentRun["outcome"] = salesAlerts.length
-        ? { kind: "alert_raised", summary: `${salesAlerts.length} alert${salesAlerts.length === 1 ? "" : "s"} added to the morning brief.` }
-        : { kind: "no_action", summary: `${wd} was within its normal range.` };
-      if (isMenuReview) {
-        const dead = c.deadItems[0];
-        steps.push({
-          index: 3,
-          title: "Weekly menu review",
-          tool: "SalesSource.getItemSales",
-          inputSummary: `range=${addDays(date, -29)}..${date}, ${loc.menuItemCount} items`,
-          outputSummary: `${c.deadItems.length} items under 2/week: ${c.deadItems.map((d) => d.name).join(", ")}`,
-          durationMs: ms(500, 1100),
-          status: "ok",
-        });
-        steps.push({
-          index: 4,
-          title: "Propose menu change",
-          tool: "Approvals.propose",
-          inputSummary: `remove "${dead.name}" (${int(dead.qty)} sold in 30 days)`,
-          outputSummary: `Approval ${loc.id}-menu-1 created`,
-          durationMs: ms(50, 120),
-          status: "ok",
-        });
-        status = "needs_approval";
-        outcome = { kind: "approval_requested", summary: `Proposed removing ${dead.name} from the menu.` };
-        approvals.push({
-          id: `${loc.id}-menu-1`,
-          locationId: loc.id,
-          agentId: "sales-watch",
-          runId: `${loc.id}:${runDate}:sales-watch`,
-          title: `Remove '${dead.name}' from menu (sold ${int(dead.qty)} in 30 days)`,
-          summary: `${dead.name} sold ${int(dead.qty)} times in the last 30 days for ${money(dead.netSales)}, about ${dead.perWeek.toFixed(1)} a week. It ties up prep and a dedicated ingredient. Removing it has no measurable revenue impact.`,
-          evidence: [
-            { label: "Sold, last 30 days", value: `${int(dead.qty)}`, href: "/sales/" },
-            { label: "Revenue, last 30 days", value: money(dead.netSales), href: "/sales/" },
-            { label: "Per week", value: dead.perWeek.toFixed(1), href: "/sales/" },
-            { label: "Menu price", value: money(dead.price), href: "/sales/" },
-          ],
-          status: "pending",
-          proposedAt: startedAt,
-          confirmation: `Menu update queued in ${loc.pos === "toast" ? "Toast" : loc.pos === "square" ? "Square" : "Lightspeed"}. ${dead.name} is 86'd from tomorrow's service.`,
-          action: `Remove "${dead.name}" from the ${dead.category.toLowerCase()} section of the menu and the POS.`,
-        });
-      }
-      const f = finish(startedAt, steps);
-      runs.push({
-        id: `${loc.id}:${runDate}:sales-watch`,
-        agentId: "sales-watch",
-        locationId: loc.id,
-        startedAt,
-        ...f,
-        status,
-        goal: `Catch anything unusual in ${wd}'s sales before the owner sees the numbers.`,
-        steps,
-        outcome,
-      });
-    }
+// ---------------------------------------------------------------------------
+// Approvals: one proposal per (agent, source), drawn from the live signals
+// ---------------------------------------------------------------------------
 
-    // ---------------- Kitchen Pacing 05:20
-    {
-      const startedAt = localIso(runDate, 5, 20, rng.int(0, 40));
-      const peak = peakKitchenLoad(day, kitchenCapacity);
-      const severity = kitchenSeverity(peak.ratio);
-      const window = peakWindowLabel(peak.index);
-      const steps: AgentStep[] = [
-        {
-          index: 1,
-          title: "Fetch hourly ticket counts",
-          tool: "SalesSource.getSalesDays",
-          inputSummary: `location=${loc.id}, date=${date}, granularity=hourly`,
-          outputSummary: `Peak ${window}: ${int(peak.orders)} tickets`,
-          durationMs: ms(400, 900),
-          status: "ok",
-        },
-        {
-          index: 2,
-          title: "Compare against kitchen pace",
-          tool: "Kitchen.evaluate",
-          inputSummary: `capacity=${int(kitchenCapacity)} tickets/hour`,
-          outputSummary: severity
-            ? `${window} ran at ${Math.round(peak.ratio * 100)}% of pace, ${severity}`
-            : `Busiest hour ran at ${Math.round(peak.ratio * 100)}% of pace, within range`,
-          durationMs: ms(30, 90),
-          status: "ok",
-        },
-      ];
-      let status: AgentRun["status"] = "success";
-      let outcome: AgentRun["outcome"] = { kind: "no_action", summary: `${wd}'s rush stayed within the kitchen's pace.` };
-      if (severity) outcome = { kind: "alert_raised", summary: `${window} ran ${severity === "critical" ? "well past" : "past"} a comfortable pace. Noted in the morning brief.` };
-      if (date === kitchenDay && severity) {
-        const deliveryHeavy = channelShare(day, "delivery") > 0.15;
-        const lever = deliveryHeavy ? "pausing new DoorDash and Uber Eats orders for 20 minutes" : "holding new online orders for 15 minutes and seating only confirmed reservations";
-        const leverShort = deliveryHeavy ? "Pause DoorDash & Uber Eats" : "Pause online ordering";
-        steps.push({
-          index: 3,
-          title: "Propose pacing change",
-          tool: "Approvals.propose",
-          inputSummary: `${wd} ${window}, ${lever}`,
-          outputSummary: `Approval ${loc.id}-kitchen-1 created`,
-          durationMs: ms(50, 120),
-          status: "ok",
-        });
-        status = "needs_approval";
-        outcome = { kind: "approval_requested", summary: `Proposed ${lever} during ${wd}'s ${window} rush.` };
-        approvals.push({
-          id: `${loc.id}-kitchen-1`,
-          locationId: loc.id,
-          agentId: "kitchen-pacing",
-          runId: `${loc.id}:${runDate}:kitchen-pacing`,
-          title: `${leverShort} for 20 minutes during ${wd}'s ${window} rush`,
-          summary: `${wd} saw ${int(peak.orders)} tickets in the ${window} window against a comfortable pace of about ${int(kitchenCapacity)} an hour — ${Math.round((peak.ratio - 1) * 100)}% over. That did not show up as a bigger sales day, just more tickets landing at once. Going forward, ${lever} during that window should spread the rush out enough for the kitchen to keep up without turning guests away.`,
-          evidence: [
-            { label: `Tickets, ${window}`, value: `${int(peak.orders)} (pace ${int(kitchenCapacity)}/hr)`, href: "/sales/#kitchen-load" },
-            { label: "Over comfortable pace", value: `${Math.round((peak.ratio - 1) * 100)}%`, href: "/sales/#kitchen-load" },
-          ],
-          status: "pending",
-          proposedAt: startedAt,
-          confirmation: deliveryHeavy ? "Delivery platforms set to auto-pause for that window going forward." : "Online ordering set to hold new orders automatically during that window going forward.",
-          action: `Starting next ${wd}, ${lever} during the ${window} rush.`,
-        });
-      }
-      const f = finish(startedAt, steps);
-      runs.push({
-        id: `${loc.id}:${runDate}:kitchen-pacing`,
-        agentId: "kitchen-pacing",
-        locationId: loc.id,
-        startedAt,
-        ...f,
-        status,
-        goal: `Keep ${wd}'s busiest hour inside the kitchen's comfortable pace.`,
-        steps,
-        outcome,
-      });
-    }
+function buildApprovals(c: RunContext): Approval[] {
+  const { company, asOf, alerts, input } = c;
+  const jobById = new Map(c.jobs.map((j) => [j.id, j]));
+  const out: Approval[] = [];
+  const seen = new Set<string>();
+  const missing = missingChangeOrders(input.codes, input.costDays, input.changeOrders, asOf);
 
-    // ---------------- Labour Optimizer 05:30
-    {
-      const startedAt = localIso(runDate, 5, 30, rng.int(0, 40));
-      const over = labour ? flaggedShifts([labour], "overstaffed") : [];
-      const under = labour ? flaggedShifts([labour], "understaffed") : [];
-      const isProposal = date === scheduleDay;
-      const isRejected = date === rejectedScheduleDay;
-      const steps: AgentStep[] = [
-        {
-          index: 1,
-          title: "Fetch upcoming schedule",
-          tool: "LabourSource.getLabourDays",
-          inputSummary: `location=${loc.id}, range=${runDate}..${addDays(runDate, 6)}`,
-          outputSummary: `${labour ? labour.shifts.length * 7 : 0} shifts, ${labour ? hours(labour.scheduledHours * 7) : "0 h"} scheduled`,
-          durationMs: ms(400, 900),
-          status: "ok",
-        },
-        {
-          index: 2,
-          title: "Fetch hourly sales, last 8 weeks",
-          tool: "SalesSource.getSalesDays",
-          inputSummary: `range=${addDays(date, -55)}..${date}, hourly`,
-          outputSummary: `56 days × 13 hours; ${wd} ${date}: ${lp !== null ? pct(lp) : "n/a"} labour`,
-          durationMs: ms(500, 1200),
-          status: "ok",
-        },
-        {
-          index: 3,
-          title: "Compare staffing to demand",
-          tool: "Labour.evaluate",
-          inputSummary: `tolerance: ±1 head per shift, target ${pct(loc.targetLabourPct, 0)}`,
-          outputSummary: over.length
-            ? `${over.length} overstaffed: ${over.map((o) => `${o.shift.role} ${o.shift.start}–${o.shift.end} (+${o.excessStaff})`).join(", ")}`
-            : under.length
-              ? `${under.length} understaffed: ${under.map((u) => `${u.shift.role} ${u.shift.start}–${u.shift.end} (−${-u.excessStaff})`).join(", ")}`
-              : "Every shift within one head of demand",
-          durationMs: ms(40, 110),
-          status: "ok",
-        },
-      ];
-      let status: AgentRun["status"] = "success";
-      let outcome: AgentRun["outcome"] = over.length || under.length ? { kind: "alert_raised", summary: "Noted in the morning brief. No change proposed yet." } : { kind: "no_action", summary: "Schedule within tolerance." };
-      if (isProposal && over.length) {
-        const o = over[0];
-        const tuesdays = c.overstaffedTuesdays;
-        const savings = o.costImpact / 2; // cutting one of the two extra heads
-        steps.push({
-          index: 4,
-          title: "Propose schedule change",
-          tool: "Approvals.propose",
-          inputSummary: `Tue ${o.shift.start}–${o.shift.end}, ${o.shift.role.toLowerCase()} −1`,
-          outputSummary: `Approval ${loc.id}-schedule-1 created (${money(savings)}/week)`,
-          durationMs: ms(50, 120),
-          status: "ok",
-        });
-        status = "needs_approval";
-        outcome = { kind: "approval_requested", summary: `Proposed cutting one ${o.shift.role.toLowerCase()} from Tuesday ${o.shift.start}–${o.shift.end}.` };
-        approvals.push({
-          id: `${loc.id}-schedule-1`,
-          locationId: loc.id,
-          agentId: "labour-optimizer",
-          runId: `${loc.id}:${runDate}:labour-optimizer`,
-          title: `Cut one ${o.shift.role.toLowerCase()} from Tue ${o.shift.start}–${o.shift.end} shift`,
-          summary: `The last two Tuesday lunches (${tuesdays.join(" and ")}) ran ${o.shift.actualStaff} ${o.shift.role.toLowerCase()}s for about ${money(o.shift.salesInWindow)} in sales; ${o.shift.neededStaff} would have covered it. Dropping one head saves roughly ${money(savings)} a week, ${money(savings * 52)} a year, with no change to Friday or Saturday.`,
-          amount: savings,
-          evidence: [
-            { label: `Staff on ${tuesdays[0]}`, value: `${o.shift.actualStaff} (needed ${o.shift.neededStaff})`, href: "/labour/" },
-            { label: "Sales in window", value: money(o.shift.salesInWindow), href: "/labour/" },
-            { label: "Avoidable labour", value: `${money(o.costImpact)} per Tuesday`, href: "/labour/" },
-            { label: "Weekly saving (−1 head)", value: money(savings), href: "/labour/" },
-          ],
-          status: "pending",
-          proposedAt: startedAt,
-          confirmation: c.sevenShifts ? "Schedule updated in 7shifts. Affected staff notified for next Tuesday." : "Draft schedule change sent to the manager for next Tuesday.",
-          action: `Reduce Tuesday ${o.shift.start}–${o.shift.end} ${o.shift.role.toLowerCase()} shift from ${o.shift.actualStaff} to ${o.shift.actualStaff - 1} starting next week.`,
-        });
-      } else if (isRejected && labour) {
-        const s = labour.shifts.find((x) => x.role.toLowerCase().includes("server") || x.role.toLowerCase().includes("cashier") || x.role.toLowerCase().includes("bartender")) ?? labour.shifts[0];
-        steps.push({
-          index: 4,
-          title: "Propose schedule change",
-          tool: "Approvals.propose",
-          inputSummary: `${wd} ${s.start}–${s.end}, ${s.role.toLowerCase()} −1`,
-          outputSummary: `Approval ${loc.id}-schedule-0 created`,
-          durationMs: ms(50, 120),
-          status: "ok",
-        });
-        status = "needs_approval";
-        outcome = { kind: "approval_requested", summary: `Proposed trimming the ${wd} ${s.start}–${s.end} shift. Rejected by the owner.` };
-        approvals.push({
-          id: `${loc.id}-schedule-0`,
-          locationId: loc.id,
-          agentId: "labour-optimizer",
-          runId: `${loc.id}:${runDate}:labour-optimizer`,
-          title: `Cut one ${s.role.toLowerCase()} from ${WEEKDAY_LONG[weekday(date)].slice(0, 3)} ${s.start}–${s.end} shift`,
-          summary: `Sales in the window were ${money(s.salesInWindow)} with ${s.actualStaff} on.`,
-          evidence: [{ label: "Sales in window", value: money(s.salesInWindow), href: "/labour/" }],
-          status: "rejected",
-          proposedAt: startedAt,
-          resolvedAt: localIso(runDate, 8, 41),
-          confirmation: "Rejected. Owner note: keep the section covered during the private-event season.",
-          action: `Reduce ${wd} ${s.start}–${s.end} ${s.role.toLowerCase()} shift by one.`,
-        });
-      }
-      const f = finish(startedAt, steps);
-      runs.push({
-        id: `${loc.id}:${runDate}:labour-optimizer`,
-        agentId: "labour-optimizer",
-        locationId: loc.id,
-        startedAt,
-        ...f,
-        status,
-        goal: `Keep labour near ${pct(loc.targetLabourPct, 0)} without leaving the floor short.`,
-        steps,
-        outcome,
-      });
-    }
+  for (const a of alerts) {
+    const agentId = APPROVAL_AGENT[a.source];
+    if (!agentId || a.severity === "info" || seen.has(`${agentId}:${a.source}`)) continue;
+    seen.add(`${agentId}:${a.source}`);
+    const job = a.jobId ? jobById.get(a.jobId) : undefined;
+    const jobLabel = job?.name ?? "the job";
+    const id = `${company.id}:${asOf}:${agentId}:${a.source}`;
+    const base = {
+      id,
+      companyId: company.id,
+      agentId,
+      runId: `${company.id}:${asOf}:${agentId}`,
+      evidence: a.evidence.slice(0, 4).map((e) => ({ label: e.label, value: e.value, href: a.href })),
+      status: "pending" as const,
+      proposedAt: localIso(addDays(asOf, 1), 5, 10 + out.length, 20),
+    };
 
-    // ---------------- Morning Brief 05:45 (+ a failed delivery and retry on one day)
-    {
-      const attempts = date === errorDay ? 2 : 1;
-      for (let attempt = 1; attempt <= attempts; attempt++) {
-        const failed = attempts === 2 && attempt === 1;
-        const startedAt = attempt === 1 ? localIso(runDate, 5, 45, rng.int(0, 40)) : localIso(runDate, 6, 10, rng.int(0, 40));
-        const steps: AgentStep[] = [
-          {
-            index: 1,
-            title: "Fetch yesterday's sales",
-            tool: "SalesSource.getSalesDays",
-            inputSummary: `location=${loc.id}, date=${date}`,
-            outputSummary: `${money(day.netSales)} net · ${int(day.covers)} covers · ${int(day.orders)} orders`,
-            durationMs: ms(300, 800),
-            status: "ok",
-          },
-          {
-            index: 2,
-            title: "Fetch yesterday's labour",
-            tool: "LabourSource.getLabourDays",
-            inputSummary: `location=${loc.id}, date=${date}`,
-            outputSummary: labour ? `${hours(labour.actualHours)} actual · ${money(labour.labourCost)} · ${lp !== null ? pct(lp) : "n/a"} of sales` : "no data",
-            durationMs: ms(250, 700),
-            status: "ok",
-          },
-          {
-            index: 3,
-            title: "Write the brief",
-            tool: "Narrator.compose",
-            inputSummary: `deltas vs 4-week ${wd} baseline, ${alerts.length} alert${alerts.length === 1 ? "" : "s"}`,
-            outputSummary: `${4 + (rng.chance(0.4) ? 1 : 0)} paragraphs · ${rng.int(120, 190)} words`,
-            durationMs: ms(1800, 4200),
-            status: "ok",
-          },
-          {
-            index: 4,
-            title: `Send via ${c.channelLabel}`,
-            tool: "Notifier.send",
-            inputSummary: `${c.channelLabel} → ${c.recipients.join(", ")}`,
-            outputSummary: failed ? "Gateway timeout (504) after 30 s. Scheduled retry at 6:10 AM." : `Delivered ${attempt === 1 ? "6:00" : "6:11"} AM`,
-            durationMs: failed ? 30000 : ms(700, 1900),
-            status: failed ? "error" : "ok",
-          },
-        ];
-        const f = finish(startedAt, steps);
-        runs.push({
-          id: `${loc.id}:${runDate}:morning-brief${attempt === 2 ? ":retry" : ""}`,
-          agentId: "morning-brief",
-          locationId: loc.id,
-          startedAt,
-          ...f,
-          status: failed ? "error" : "success",
-          goal: `Deliver the ${wd} brief to ${loc.owner.name.split(" ")[0]} by 6:00 AM.`,
-          steps,
-          outcome: failed
-            ? { kind: "error", summary: "Delivery failed on the messaging gateway. Retried automatically at 6:10 AM." }
-            : { kind: "brief_sent", summary: `Brief delivered to ${c.channelLabel} at ${attempt === 1 ? "6:00" : "6:11"} AM.` },
+    switch (a.source) {
+      case "margin":
+        out.push({
+          ...base,
+          title: `Hold a cost review on ${jobLabel}`,
+          summary: a.detail,
+          action: `Book a 30-minute cost review this week with ${job?.pm ?? "the project manager"} and the superintendent. Agenda: the cost codes running over, whether the remaining scope needs re-planning, and whether any of it should be re-priced with the client.`,
+          confirmation: `Cost review invite sent to ${job?.pm ?? "the project manager"} and the superintendent for Thursday 9:00 AM.`,
         });
+        break;
+      case "labour":
+        out.push({
+          ...base,
+          title: `Reallocate crew on ${jobLabel}`,
+          summary: a.detail,
+          action: `Propose adding one crew to the codes driving the overtime and capping weekly overtime at 15% of hours on ${jobLabel}. The superintendent confirms the crew move before it goes to the foreman.`,
+          confirmation: `Crew reallocation proposal sent to the superintendent for ${jobLabel}. No schedule is changed until they confirm.`,
+        });
+        break;
+      case "change_orders": {
+        const m = missing.find((x) => x.jobId === a.jobId);
+        if (!m) break;
+        const amount = Math.round((m.cost * 1.12) / 100) * 100;
+        out.push({
+          ...base,
+          title: `Change order request: ${m.name}`,
+          summary: `${int(m.hours)} hours and ${money(m.cost)} booked to ${m.code} since ${m.firstDate} with no change order on file. Draft request is ${money(amount)} including 12% markup.`,
+          amount,
+          refId: m.codeId,
+          action: `Submit a change order to ${job?.client ?? "the client"} for ${m.name.toLowerCase()} on ${jobLabel}: ${money(amount)} (${money(m.cost)} cost plus 12% markup). Attach the daily time entries and foreman notes from ${m.firstDate} to ${m.lastDate} as backup.`,
+          confirmation: `Change order drafted for ${money(amount)} and sent to ${job?.client ?? "the client"} with backup attached.`,
+        });
+        break;
       }
+      case "billing":
+        out.push({
+          ...base,
+          title: `Send progress billing package: ${jobLabel}`,
+          summary: a.detail,
+          amount: Number(a.evidence.find((e) => e.label === "Unbilled")?.value.replace(/[^0-9.]/g, "").slice(0, 9)) || undefined,
+          action: `Assemble the progress billing package for ${jobLabel} from approved quantities and daily reports, and send it to the controller for review before it goes to ${job?.client ?? "the client"}.`,
+          confirmation: `Billing package for ${jobLabel} sent to the controller. Nothing goes to the client until they approve.`,
+        });
+        break;
+      case "tickets":
+        out.push({
+          ...base,
+          title: `Chase stuck field tickets`,
+          summary: a.detail,
+          action: `Send the foreman a list of unsigned tickets to get signed at the next site visit, submit the signed tickets to the client's billing system, and attach backup to the disputed ones.`,
+          confirmation: `Ticket follow-up list sent to the operations coordinator and the foremen.`,
+        });
+        break;
+      case "materials": {
+        out.push({
+          ...base,
+          title: `Expedite: ${a.title.split(" lands ")[0]}`,
+          summary: a.detail,
+          action: `Email the vendor asking for a partial shipment or a firm date before the need date, and copy the superintendent so the crew can be re-sequenced if it slips.`,
+          confirmation: `Expedite request sent to the vendor. Superintendent copied.`,
+        });
+        break;
+      }
+      case "safety":
+        out.push({
+          ...base,
+          title: `Send overdue corrective-action reminder`,
+          summary: a.detail,
+          action: `Remind the owner of the overdue corrective action and escalate to the safety lead if it is still open at the next toolbox talk. Evolv routes and reminds only; the supervisor decides what to do on site.`,
+          confirmation: `Reminder sent to the action owner. Safety lead copied.`,
+        });
+        break;
     }
   }
 
-  runs.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-  approvals.sort((a, b) => b.proposedAt.localeCompare(a.proposedAt));
-  return { runs, approvals };
+  // History, so the approvals page shows what happens after a decision.
+  const first = c.jobs[0];
+  out.push({
+    id: `${company.id}:${addDays(asOf, -6)}:billing-accelerator:history`,
+    companyId: company.id,
+    agentId: "billing-accelerator",
+    title: `Submit signed tickets to the client's billing system`,
+    summary: `Nine signed field tickets on ${first.name} had not been submitted. Total ${moneyCompact(31_400)}.`,
+    amount: 31_400,
+    evidence: [{ label: "Signed, not submitted", value: "9 tickets", href: "/billing/" }],
+    status: "approved",
+    proposedAt: localIso(addDays(asOf, -5), 5, 30, 12),
+    resolvedAt: localIso(addDays(asOf, -5), 7, 41, 3),
+    confirmation: "Nine tickets submitted. Client acknowledged receipt the same afternoon.",
+    action: `Submit the nine signed tickets on ${first.name} to the client's billing system with backup attached.`,
+  });
+  out.push({
+    id: `${company.id}:${addDays(asOf, -12)}:labor-analyst:history`,
+    companyId: company.id,
+    agentId: "labor-analyst",
+    title: `Add a Saturday shift on ${c.jobs[c.jobs.length - 1].name}`,
+    summary: `Overtime was sitting near 15% and a Saturday shift would have spread the hours. The superintendent judged the crew was fine and declined.`,
+    evidence: [{ label: "Overtime share", value: "15%", href: "/labour/" }],
+    status: "rejected",
+    proposedAt: localIso(addDays(asOf, -11), 5, 10, 8),
+    resolvedAt: localIso(addDays(asOf, -11), 8, 12, 40),
+    confirmation: "No change made.",
+    action: `Add a Saturday shift on ${c.jobs[c.jobs.length - 1].name} to spread the hours.`,
+  });
+  return out;
 }
