@@ -1,57 +1,71 @@
 "use client";
-import { useState } from "react";
-import { CalendarClock } from "lucide-react";
-import { apiClient } from "@/lib/api-client";
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { addDays } from "@evolv/contracts/dates";
+import { RULES } from "@evolv/contracts/alerts";
+import { hoursByCode, hoursInRange, overtimePct, weeklyHours } from "@evolv/contracts/labour";
+import { int, money, pct } from "@evolv/contracts/format";
 import { useAppState } from "@/components/providers/app-state";
-import { useAsync } from "@/hooks/use-async";
-import { rangeEndingAt } from "@evolv/contracts/dates";
-import { flaggedShifts, labourPct, type FlaggedShift } from "@evolv/contracts/labour";
-import { findDay, sumBy } from "@evolv/contracts/sales";
-import { hours, money, pct, shortDateWeekday, signedPts } from "@evolv/contracts/format";
-import type { Approval } from "@evolv/contracts/types";
+import { scopeSnapshot } from "@/lib/metrics";
 import { PageHeader } from "@/components/layout/page-header";
 import { Section } from "@/components/common/section";
 import { StatTile } from "@/components/common/stat-tile";
 import { Delta } from "@/components/common/delta";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
-import { LabourPctLine } from "@/components/charts/labour-pct-line";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { HoursBars } from "@/components/charts/hours-bars";
-import { ScheduleProposalDialog } from "./schedule-proposal-dialog";
 
 type Window = 7 | 30;
 
+function otBadge(share: number | null) {
+  if (share === null) return <Badge variant="muted">No hours</Badge>;
+  const v = share >= RULES.overtimeCriticalPct ? "danger" : share >= RULES.overtimeWarnPct ? "warning" : "success";
+  return <Badge variant={v}>{pct(share, 0)}</Badge>;
+}
+
 export function LabourPage() {
-  const { locationId, outletId, asOf, location, settings } = useAppState();
-  const [win, setWin] = useState<Window>(30);
-  const range = rangeEndingAt(asOf, win);
-  const [proposal, setProposal] = useState<FlaggedShift | null>(null);
+  const { company, jobId, asOf, snapshot, approvals } = useAppState();
+  const [win, setWin] = useState<Window>(7);
+  const scoped = useMemo(() => (snapshot ? scopeSnapshot(snapshot, jobId) : undefined), [snapshot, jobId]);
 
-  const data = useAsync(async () => {
-    const [salesDays, labourDays] = await Promise.all([
-      apiClient.sales.getSalesDays({ locationId, outletId, range }),
-      apiClient.labour.getLabourDays({ locationId, outletId, range }),
-    ]);
-    return { salesDays, labourDays };
-  }, [locationId, outletId, asOf, win]);
+  const view = useMemo(() => {
+    if (!scoped) return undefined;
+    const range = { from: addDays(asOf, -(win - 1)), to: asOf };
+    const prev = { from: addDays(asOf, -(2 * win - 1)), to: addDays(asOf, -win) };
+    const { total, overtime } = hoursInRange(scoped.costDays, range);
+    const cost = scoped.costDays.filter((d) => d.hours > 0 && d.date >= range.from).reduce((a, d) => a + d.cost, 0);
+    const byJob = scoped.jobs.map((j) => {
+      const days = scoped.costDays.filter((d) => d.jobId === j.id);
+      const h = hoursInRange(days, range);
+      return { job: j, hours: h.total, overtime: h.overtime, share: overtimePct(days, range) };
+    });
+    const names = new Map(scoped.codes.map((c) => [c.id, c]));
+    const jobNames = new Map(scoped.jobs.map((j) => [j.id, j.name]));
+    const byCode = hoursByCode(scoped.costDays, range)
+      .filter((c) => c.hours >= 40)
+      .slice(0, 6)
+      .map((c) => ({ ...c, code: names.get(c.codeId), jobName: jobNames.get(names.get(c.codeId)?.jobId ?? "") ?? "" }));
+    return {
+      total,
+      overtime,
+      cost,
+      share: overtimePct(scoped.costDays, range),
+      prevShare: overtimePct(scoped.costDays, prev),
+      weeks: weeklyHours(scoped.costDays, { from: addDays(asOf, -69), to: asOf }),
+      byJob,
+      byCode,
+      overJobs: byJob.filter((j) => j.share !== null && j.share >= RULES.overtimeWarnPct).length,
+    };
+  }, [scoped, asOf, win]);
 
-  const salesDays = data.data?.salesDays ?? [];
-  const labourDays = data.data?.labourDays ?? [];
-  const totalSales = sumBy(salesDays, (d) => d.netSales);
-  const totalCost = sumBy(labourDays, (d) => d.labourCost);
-  const overall = totalSales ? totalCost / totalSales : null;
-  const points = labourDays.map((l) => ({ date: l.date, value: labourPct(l, findDay(salesDays, l.date)) }));
-  const over = flaggedShifts(labourDays, "overstaffed");
-  const under = flaggedShifts(labourDays, "understaffed");
-  const target = settings.targetLabourPct;
-  const daysOver = points.filter((p) => p.value !== null && p.value > target).length;
+  const proposals = approvals.filter((a) => a.agentId === "labor-analyst" && a.status === "pending");
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Labour" description={`${location?.name}, last ${win} days to ${asOf}. Target ${pct(target, 0)} of sales.`}>
+      <PageHeader title="Labour" description={`${company?.name}, last ${win} days to ${asOf}. Overtime above ${pct(RULES.overtimeWarnPct, 0)} of hours raises a signal.`}>
         <Tabs value={String(win)} onValueChange={(v) => setWin(Number(v) as Window)}>
           <TabsList aria-label="Window">
             <TabsTrigger value="7">7 days</TabsTrigger>
@@ -61,92 +75,78 @@ export function LabourPage() {
       </PageHeader>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatTile label="Labour % of sales" loading={data.loading} value={overall !== null ? pct(overall) : "—"} delta={<Delta value={overall !== null ? overall - target : null} kind="pts" goodWhen="down" />} hint="vs target" />
-        <StatTile label="Labour cost" loading={data.loading} value={money(totalCost)} hint={`on ${money(totalSales)} sales`} />
-        <StatTile label="Hours worked" loading={data.loading} value={hours(sumBy(labourDays, (d) => d.actualHours))} hint={`${hours(sumBy(labourDays, (d) => d.scheduledHours))} scheduled`} />
-        <StatTile label="Days over target" loading={data.loading} value={`${daysOver} of ${points.length}`} hint={daysOver ? `${signedPts(Math.max(...points.map((p) => (p.value ?? 0) - target)))} worst` : "all under"} />
+        <StatTile
+          label="Overtime share"
+          loading={!view}
+          value={view?.share != null ? pct(view.share, 0) : "—"}
+          delta={view?.share != null && view?.prevShare != null ? <Delta value={view.share - view.prevShare} kind="pts" goodWhen="down" /> : undefined}
+          hint={`vs prior ${win} days`}
+        />
+        <StatTile label="Labour hours" loading={!view} value={view ? int(view.total) : "—"} hint={view ? `${int(view.overtime)} overtime` : undefined} />
+        <StatTile label="Labour cost" loading={!view} value={view ? money(view.cost) : "—"} hint="burdened, all labour codes" />
+        <StatTile label="Jobs over the line" loading={!view} value={view ? `${view.overJobs} of ${view.byJob.length}` : "—"} hint={`overtime above ${pct(RULES.overtimeWarnPct, 0)}`} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Section title="Labour cost % of sales" description="Daily, with the target line.">
-          {data.loading ? <Skeleton className="h-56" /> : points.length ? <LabourPctLine points={points} target={target} /> : <EmptyState title="No labour data in this window" />}
-        </Section>
-        <Section title="Scheduled vs actual hours" description="Where the floor ran heavier or lighter than the schedule.">
-          {data.loading ? <Skeleton className="h-56" /> : labourDays.length ? <HoursBars days={labourDays} /> : <EmptyState title="No labour data in this window" />}
-        </Section>
-      </div>
-
-      <Section title="Overstaffed shifts" description="Shifts with at least two more people than the sales in that window justified.">
-        {data.loading ? (
-          <div className="flex flex-col gap-2">{[0, 1].map((i) => <Skeleton key={i} className="h-16" />)}</div>
-        ) : over.length ? (
-          <ul className="flex flex-col divide-y">
-            {over.map((o) => (
-              <li key={`${o.date}-${o.shift.id}`} className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{shortDateWeekday(o.date)}</span>
-                    <span className="text-muted-foreground text-sm">{o.shift.role} · {o.shift.start}–{o.shift.end}</span>
-                    {o.shift.id.includes(":") && location?.outlets ? (
-                      <Badge variant="muted">{location.outlets.find((x) => x.id === o.shift.id.split(":")[0])?.name ?? ""}</Badge>
-                    ) : null}
-                  </div>
-                  <div className="text-muted-foreground mt-0.5 text-sm">
-                    {o.shift.actualStaff} on for {money(o.shift.salesInWindow)} in sales; {o.shift.neededStaff} needed. About <span className="text-foreground font-medium">{money(o.costImpact)}</span> avoidable.
-                  </div>
-                </div>
-                <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => setProposal(o)}>
-                  <CalendarClock /> Suggest schedule change
-                </Button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <EmptyState title="No overstaffed shifts" description="Every shift in this window was within one person of what sales justified." />
-        )}
-      </Section>
-
-      {under.length ? (
-        <Section title="Understaffed shifts" description="Shifts that ran at least two people short of what sales needed.">
-          <ul className="flex flex-col divide-y">
-            {under.map((u) => (
-              <li key={`${u.date}-${u.shift.id}`} className="py-3 first:pt-0 last:pb-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{shortDateWeekday(u.date)}</span>
-                  <span className="text-muted-foreground text-sm">{u.shift.role} · {u.shift.start}–{u.shift.end}</span>
-                </div>
-                <div className="text-muted-foreground mt-0.5 text-sm">
-                  {u.shift.actualStaff} worked against {u.shift.scheduledStaff} scheduled, through a {money(u.shift.salesInWindow)} window.
-                </div>
-              </li>
-            ))}
-          </ul>
-        </Section>
+      {proposals.length ? (
+        <Link href="/approvals/" className="bg-accent/60 hover:bg-accent rounded-lg px-3.5 py-2.5 text-sm">
+          <span className="font-medium">{proposals[0].title}</span> is waiting for your approval. <span className="text-primary underline-offset-2 hover:underline">Review it</span>
+        </Link>
       ) : null}
 
-      <ScheduleProposalDialog flagged={proposal} onClose={() => setProposal(null)} buildApproval={(f) => buildProposal(f, locationId)} />
+      <Section title="Weekly labour hours" description="Regular and overtime hours across all labour cost codes, last ten weeks.">
+        {!view ? <Skeleton className="h-56" /> : view.weeks.length ? <HoursBars weeks={view.weeks} /> : <EmptyState title="No labour hours recorded" />}
+      </Section>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Section title="Overtime by job">
+          {!view ? (
+            <Skeleton className="h-32" />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Job</TableHead>
+                  <TableHead className="text-right">Hours</TableHead>
+                  <TableHead className="text-right">Overtime</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {view.byJob.map((r) => (
+                  <TableRow key={r.job.id}>
+                    <TableCell className="font-medium">{r.job.name}</TableCell>
+                    <TableCell className="text-right">{int(r.hours)}</TableCell>
+                    <TableCell className="text-right">{otBadge(r.share)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </Section>
+
+        <Section title="Where the overtime sits" description="Labour cost codes with the heaviest overtime share in this window.">
+          {!view ? (
+            <Skeleton className="h-32" />
+          ) : view.byCode.length ? (
+            <ul className="flex flex-col divide-y">
+              {view.byCode.map((c) => (
+                <li key={c.codeId} className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">
+                      {c.code?.code} {c.code?.name}
+                    </div>
+                    <div className="text-muted-foreground truncate text-xs">
+                      {c.jobName} · {int(c.hours)} h
+                    </div>
+                  </div>
+                  {otBadge(c.overtimePct)}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState title="No labour codes with enough hours" />
+          )}
+        </Section>
+      </div>
     </div>
   );
-}
-
-function buildProposal(f: FlaggedShift, locationId: string): Approval {
-  const weekly = f.hoursInWindow * f.shift.hourlyRate * 1.08;
-  const wd = shortDateWeekday(f.date).slice(0, 3);
-  return {
-    id: `${locationId}-schedule-${f.date}-${f.shift.id}`,
-    locationId,
-    agentId: "labour-optimizer",
-    title: `Cut one ${f.shift.role.toLowerCase()} from ${wd} ${f.shift.start}–${f.shift.end} shift`,
-    summary: `${shortDateWeekday(f.date)} ran ${f.shift.actualStaff} ${f.shift.role.toLowerCase()}s for ${money(f.shift.salesInWindow)} in sales; ${f.shift.neededStaff} would have covered it. Dropping one head saves about ${money(weekly)} a week if the pattern holds.`,
-    amount: weekly,
-    evidence: [
-      { label: "Staff on shift", value: `${f.shift.actualStaff} (needed ${f.shift.neededStaff})`, href: "/labour/" },
-      { label: "Sales in window", value: money(f.shift.salesInWindow), href: "/labour/" },
-      { label: "Avoidable labour", value: money(f.costImpact), href: "/labour/" },
-    ],
-    status: "pending",
-    proposedAt: new Date().toISOString(),
-    confirmation: "Schedule updated. Affected staff notified for next week.",
-    action: `Reduce ${wd} ${f.shift.start}–${f.shift.end} ${f.shift.role.toLowerCase()} shift from ${f.shift.actualStaff} to ${f.shift.actualStaff - 1} starting next week.`,
-  };
 }

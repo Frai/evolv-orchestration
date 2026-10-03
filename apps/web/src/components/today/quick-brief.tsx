@@ -2,17 +2,17 @@ import Link from "next/link";
 import { CheckCircle2, ChevronRight } from "lucide-react";
 import type { Approval } from "@evolv/contracts/types";
 import type { BriefInput } from "@evolv/contracts/brief";
-import { peakWindowLabel } from "@evolv/contracts/kitchen";
-import { int, money, pct } from "@evolv/contracts/format";
+import { index, money, pct } from "@evolv/contracts/format";
 import { Delta } from "@/components/common/delta";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
-function StatRow({ label, value, delta, hint }: { label: string; value: string; delta?: React.ReactNode; hint?: string }) {
+function StatRow({ label, value, delta, hint, tone }: { label: string; value: string; delta?: React.ReactNode; hint?: string; tone?: "bad" }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-1.5">
       <span className="text-sm">{label}</span>
       <span className="flex flex-wrap items-baseline justify-end gap-x-2 gap-y-0.5 text-right">
-        <span className="tnum font-semibold">{value}</span>
+        <span className={cn("tnum font-semibold", tone === "bad" && "text-red-700")}>{value}</span>
         {delta}
         {hint ? <span className="text-muted-foreground w-full text-right text-xs sm:w-auto">{hint}</span> : null}
       </span>
@@ -20,8 +20,8 @@ function StatRow({ label, value, delta, hint }: { label: string; value: string; 
   );
 }
 
-/** Numbers and actions only — for the ten seconds before coffee kicks in. The narrative lives in "At a glance". */
-export function QuickBrief({ input, loading, pendingApprovals, approvalsLoading, targetLabourPct, roomService }: { input: BriefInput | null; loading: boolean; pendingApprovals: Approval[]; approvalsLoading: boolean; targetLabourPct: number; roomService: boolean }) {
+/** Numbers and actions only, for the ten seconds before the morning huddle. The narrative lives in "At a glance". */
+export function QuickBrief({ input, loading, pendingApprovals, approvalsLoading, targetMarginPct }: { input: BriefInput | null; loading: boolean; pendingApprovals: Approval[]; approvalsLoading: boolean; targetMarginPct: number }) {
   if (loading) {
     return (
       <div className="flex flex-col gap-2">
@@ -33,25 +33,21 @@ export function QuickBrief({ input, loading, pendingApprovals, approvalsLoading,
   }
   if (!input) return null;
 
-  const deliveryValue = input.channels.delivery + input.channels.room_service;
-
   return (
     <div className="flex flex-col gap-4">
       <div className="divide-y">
-        <StatRow label="Net sales" value={money(input.netSales)} delta={<Delta value={input.netSalesDelta} />} />
-        <StatRow
-          label="Labour"
-          value={input.labourPct !== null ? pct(input.labourPct) : "—"}
-          delta={<Delta value={input.labourPctDelta} kind="pts" goodWhen="down" />}
-          hint={`target ${pct(targetLabourPct, 0)}`}
-        />
-        <StatRow label="Covers" value={int(input.covers)} delta={<Delta value={input.coversDelta} />} hint={`${money(input.avgCheck)} avg check`} />
-        <StatRow label={roomService ? "Room service" : "Delivery"} value={pct(input.deliveryShare, 0)} delta={<Delta value={input.deliveryShareDelta} kind="pts" />} hint={money(deliveryValue)} />
-        <StatRow
-          label="Kitchen"
-          value={input.kitchenSeverity ? (input.kitchenSeverity === "critical" ? "Fell behind" : "Ran hot") : "Kept pace"}
-          hint={`${peakWindowLabel(input.kitchenPeakHourIndex)} · ${int(input.kitchenPeakOrders)} tickets vs ${int(input.kitchenCapacity)}/hr`}
-        />
+        {input.jobs.map((j) => (
+          <StatRow
+            key={j.jobId}
+            label={j.name}
+            value={pct(j.marginAtCompletion)}
+            tone={j.marginAtCompletion < targetMarginPct - 0.03 ? "bad" : undefined}
+            delta={<Delta value={j.marginDelta} kind="pts" />}
+            hint={`CPI ${index(j.cpi)} · ${pct(j.pctComplete, 0)} complete`}
+          />
+        ))}
+        {input.unbilledWork > 0 ? <StatRow label="Earned, past the billing cycle" value={money(input.unbilledWork)} hint="not yet invoiced" /> : null}
+        {input.missingChangeOrderCost > 0 ? <StatRow label="Booked with no change order" value={money(input.missingChangeOrderCost)} tone="bad" /> : null}
       </div>
 
       <div>

@@ -1,3 +1,5 @@
+> **Superseded.** This is the original restaurant and hotel build spec, kept for history. The product is now the oil and gas contractor demo: see `README.md`, `docs/OIL_GAS_PIVOT.md` and `docs/ARCHITECTURE.md`. The folder structure and hexagonal rules below still hold; the domain, mock world and pages do not.
+
 # Evolv demo site — Claude Code build spec
 
 Purpose: a clickable, fully mocked web app that looks like the finished Evolv product. Shown to 10 restaurants and 3 hotels that signed LOIs, to collect their questions and objections before real integrations are built. Nothing here talks to a real vendor.

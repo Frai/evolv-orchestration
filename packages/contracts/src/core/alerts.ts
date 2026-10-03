@@ -168,7 +168,7 @@ export function detectAlerts(input: AlertInput): Alert[] {
       jobId: m.jobId,
       href: "/billing/",
       title: `${job?.name ?? "Job"}: ${moneyCompact(m.cost)} booked to ${m.code} with no change order`,
-      detail: `${int(m.hours)} hours since ${shortDate(m.firstDate)} on ${m.name.toLowerCase()}, outside the original scope. Without a change order this cost comes straight out of margin.`,
+      detail: `${int(m.hours)} hours since ${shortDate(m.firstDate)} on ${m.name}, outside the original scope. Without a change order this cost comes straight out of margin.`,
       suggestedAction: "Draft the change-order request with the booked hours and cost as backup, then get the superintendent's sign-off before it goes to the client.",
       owner: "Project manager",
       evidence: [

@@ -22,7 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 export function ApprovalsPage() {
-  const { approvals, approvalsLoading, resolveApproval, resolvingApprovalId, location, agentModes, setAgentMode } = useAppState();
+  const { approvals, approvalsLoading, resolveApproval, resolvingApprovalId, company, agentModes, setAgentMode } = useAppState();
   const agents = useAsync(() => apiClient.agents.listAgents(), []);
   const [editing, setEditing] = useState<Approval | null>(null);
   const [draft, setDraft] = useState("");
@@ -34,7 +34,7 @@ export function ApprovalsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Approvals" description={`Actions agents want to take at ${location?.name}. Nothing happens until you say so.`} />
+      <PageHeader title="Approvals" description={`Actions agents want to take for ${company?.name}. Nothing is sent or written until you say so.`} />
 
       <Tabs defaultValue="queue">
         <TabsList>
@@ -184,7 +184,7 @@ function ApprovalCard({
             </dd>
           </div>
         ))}
-        {a.amount && a.agentId === "inventory-guard" ? (
+        {a.amount ? (
           <div className="bg-muted/50 rounded-md px-2.5 py-1.5">
             <dt className="text-muted-foreground text-[11px]">Amount</dt>
             <dd className="tnum font-medium">{money(a.amount)}</dd>

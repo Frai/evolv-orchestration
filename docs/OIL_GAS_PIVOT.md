@@ -1,6 +1,6 @@
 # Oil & Gas pivot
 
-Branch: `oil-gas-pivot` (cut from `supabase-persistence`). Status: planning. No code changed yet.
+Branch: `oil-gas-pivot` (cut from `supabase-persistence`). Status: the demo has been rewritten for contractors (domain, API, fixtures, web). The connector SDK and real pilot build have not started.
 
 Source docs: `Evolv_OG_One-Pager.pdf` and `Evolv_Orchestrator_Build_Plan.docx` (October 2026).
 
@@ -29,24 +29,23 @@ Unverified, check before showing a prospect: RigER, hh2.
 
 Operator-side (out of scope, listed for context): Quorum, Enverus/P2, WolfePak, Enertia, SAP IS-Oil, JD Edwards; SCADA via Emerson DeltaV, Honeywell Experion, ABB, AVEVA.
 
-## Gaps in the build plan to fix
+## Gaps in the build plan
 
-1. Canonical model has no `FieldTicket` entity. Add it (ticket id, job, crew, labour/equipment/material lines, customer signature status, billing status).
-2. No `AFE` / cost-center entity. Operators approve and code spend against AFEs.
-3. Add an OpenInvoice-compatible export as a fourth pilot connector.
-4. Consider reframing the pilot as ticket-to-invoice leakage (unbilled or disputed tickets) alongside EVM margin erosion. Test on discovery calls.
+1. `FieldTicket` was missing from the canonical model. **Done in the demo** (ticket, job, crew, hours, amount, signature and billing status).
+2. No `AFE` / cost-center entity. Operators approve and code spend against AFEs. **Still open.**
+3. OpenInvoice-compatible export as a fourth pilot connector. **In the integration catalog only**; no connector exists.
+4. Pilot reframed to include ticket-to-invoice leakage alongside EVM margin erosion. **In the demo; still to be tested on discovery calls.**
 
-## Mapping from the current restaurant demo
+## Mapping from the original restaurant demo (done)
 
-| Restaurant port | O&G equivalent | Action |
+| Restaurant port | O&G port | Notes |
 |---|---|---|
-| `SalesSource` (POS) | `FieldTicketSource` (ticketing / OpenInvoice) | Replace |
-| `LabourSource` (7shifts) | `TimeSource` (ExakTime etc.) | Replace |
-| `InventorySource` | `CommitmentSource` (POs, subcontracts, materials) | Replace |
-| `AccountingSource` | `AccountingSource` (Sage / Vista / QuickBooks) | Keep, new shape (cost codes, job cost) |
-| `Narrator`, `Notifier`, `AgentRunner`, `ApprovalQueue`, `IntegrationRegistry` | Same | Keep; swap agent set for Margin Sentinel, Change-Order Catcher, Billing Accelerator, etc. |
-
-Pure domain functions in `packages/contracts/src/core` (`sales`, `labour`, `inventory`, `kitchen`) get replaced by EVM (CPI, SPI, EAC, margin at completion) and the rule-based signals from the build plan. `alerts` and `brief` carry over structurally.
+| `SalesSource` (POS) | `ProjectSource` | Companies, jobs, cost codes, daily cost and field progress |
+| `LabourSource` (7shifts) | folded into `ProjectSource` | Hours and overtime are columns on the daily cost rows |
+| `InventorySource` | `ResourceSource` | Equipment and purchase orders / subcontracts |
+| `AccountingSource` | `BillingSource` | Field tickets, invoices, change orders |
+| (new) | `SafetySource` | Incidents and corrective actions; route and remind only |
+| `Narrator`, `Notifier`, `AgentRunner`, `ApprovalQueue`, `IntegrationRegistry` | Same | Agent set is now Margin Sentinel, Labor Analyst, Change-Order Catcher, Billing Accelerator, Materials Watcher, Safety Coordinator |
 
 ## Open items
 

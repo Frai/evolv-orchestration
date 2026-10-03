@@ -18,20 +18,20 @@ const CHANNELS: { id: DeliveryChannel; label: string; hint: string }[] = [
 ];
 
 export function SettingsPage() {
-  const { settings, updateSettings, location } = useAppState();
+  const { settings, updateSettings, company } = useAppState();
   // Remount the form when the tenant changes so its local state re-initialises from that tenant's settings.
-  return <SettingsForm key={location?.id ?? "none"} settings={settings} updateSettings={updateSettings} locationName={location?.name ?? ""} />;
+  return <SettingsForm key={company?.id ?? "none"} settings={settings} updateSettings={updateSettings} companyName={company?.name ?? ""} />;
 }
 
-function SettingsForm({ settings, updateSettings, locationName }: { settings: Settings; updateSettings: (p: Partial<Settings>) => void; locationName: string }) {
+function SettingsForm({ settings, updateSettings, companyName }: { settings: Settings; updateSettings: (p: Partial<Settings>) => void; companyName: string }) {
   const [channel, setChannel] = useState(settings.deliveryChannel);
   const [sendTime, setSendTime] = useState(settings.sendTime);
   const [recipients, setRecipients] = useState(settings.recipients.join("\n"));
-  const [target, setTarget] = useState(String(Math.round(settings.targetLabourPct * 100)));
+  const [target, setTarget] = useState(String(Math.round(settings.targetMarginPct * 100)));
   const [saved, setSaved] = useState(false);
 
   const save = () => {
-    const t = Math.min(60, Math.max(10, Number(target) || 28)) / 100;
+    const t = Math.min(40, Math.max(2, Number(target) || 12)) / 100;
     updateSettings({
       deliveryChannel: channel,
       sendTime,
@@ -39,7 +39,7 @@ function SettingsForm({ settings, updateSettings, locationName }: { settings: Se
         .split(/\n|,/)
         .map((r) => r.trim())
         .filter(Boolean),
-      targetLabourPct: t,
+      targetMarginPct: t,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
@@ -47,9 +47,9 @@ function SettingsForm({ settings, updateSettings, locationName }: { settings: Se
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Settings" description={`How ${locationName} gets its brief. Changes apply to this location.`} />
+      <PageHeader title="Settings" description={`How ${companyName} gets its daily brief. Changes apply to this company.`} />
 
-      <Section title="Morning brief delivery">
+      <Section title="Daily brief delivery">
         <div className="flex flex-col gap-5">
           <div className="flex flex-col gap-2">
             <Label>Channel</Label>
@@ -75,11 +75,11 @@ function SettingsForm({ settings, updateSettings, locationName }: { settings: Se
             <div className="flex flex-col gap-2">
               <Label htmlFor="send-time">Send time</Label>
               <Input id="send-time" type="time" value={sendTime} onChange={(e) => setSendTime(e.target.value)} className="sm:max-w-40" />
-              <p className="text-muted-foreground text-xs">Local time. The day closes in the POS around 23:30, so anything after 5:00 AM works.</p>
+              <p className="text-muted-foreground text-xs">Local time. Job cost lands overnight, so anything after 5:00 AM works.</p>
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="recipients">Recipients</Label>
-              <Textarea id="recipients" rows={3} value={recipients} onChange={(e) => setRecipients(e.target.value)} placeholder={"+1 403 555 0100\nowner@restaurant.ca"} />
+              <Textarea id="recipients" rows={3} value={recipients} onChange={(e) => setRecipients(e.target.value)} placeholder={"+1 403 555 0100\npm@contractor.ca"} />
               <p className="text-muted-foreground text-xs">One per line. Phone numbers get WhatsApp, addresses get email.</p>
             </div>
           </div>
@@ -88,12 +88,12 @@ function SettingsForm({ settings, updateSettings, locationName }: { settings: Se
 
       <Section title="Targets">
         <div className="flex flex-col gap-2 sm:max-w-xs">
-          <Label htmlFor="target">Target labour, % of net sales</Label>
+          <Label htmlFor="target">Target margin at completion, % of contract</Label>
           <div className="flex items-center gap-2">
-            <Input id="target" type="number" inputMode="numeric" min={10} max={60} value={target} onChange={(e) => setTarget(e.target.value)} className="max-w-24" />
+            <Input id="target" type="number" inputMode="numeric" min={2} max={40} value={target} onChange={(e) => setTarget(e.target.value)} className="max-w-24" />
             <span className="text-muted-foreground text-sm">%</span>
           </div>
-          <p className="text-muted-foreground text-xs">Drives the labour alerts, the target line on the Labour page and the Labour Optimizer.</p>
+          <p className="text-muted-foreground text-xs">Jobs forecasting more than three points below this raise a margin signal; eight points below is critical.</p>
         </div>
       </Section>
 

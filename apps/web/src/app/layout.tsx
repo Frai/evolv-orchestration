@@ -4,14 +4,14 @@ import { AppStateProvider } from "@/components/providers/app-state";
 
 export const metadata: Metadata = {
   title: { default: "Evolv", template: "%s · Evolv" },
-  description: "Your restaurant, briefed every morning.",
+  description: "Margin, billing and crew signals for oil and gas contractors, briefed every morning.",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#fafaf8",
+  themeColor: "#f7f8fa",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

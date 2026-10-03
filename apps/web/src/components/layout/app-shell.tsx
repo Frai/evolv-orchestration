@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { signedIn, ready, signOut, pendingCount, location } = useAppState();
+  const { signedIn, ready, signOut, pendingCount, company } = useAppState();
   const router = useRouter();
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -21,7 +21,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (ready && !signedIn) router.replace("/login/");
   }, [ready, signedIn, router]);
 
-  if (!ready || !signedIn || !location) {
+  if (!ready || !signedIn || !company) {
     return (
       <div className="mx-auto max-w-6xl p-4 md:p-6">
         <Skeleton className="mb-4 h-8 w-48" />

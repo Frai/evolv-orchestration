@@ -2,7 +2,7 @@ import type { Agent, AgentRun, AgentStep, Alert, Approval, AlertSource, Company,
 import type { AlertInput } from "@evolv/contracts/alerts";
 import { addDays } from "@evolv/contracts/dates";
 import { missingChangeOrders } from "@evolv/contracts/billing";
-import { int, money, moneyCompact } from "@evolv/contracts/format";
+import { int, money, moneyCompact, shortDate } from "@evolv/contracts/format";
 import { Rng, hashSeed } from "./rng";
 
 export const AGENTS: Agent[] = [
@@ -339,10 +339,10 @@ function buildApprovals(c: RunContext): Approval[] {
         out.push({
           ...base,
           title: `Change order request: ${m.name}`,
-          summary: `${int(m.hours)} hours and ${money(m.cost)} booked to ${m.code} since ${m.firstDate} with no change order on file. Draft request is ${money(amount)} including 12% markup.`,
+          summary: `${int(m.hours)} hours and ${money(m.cost)} booked to ${m.code} since ${shortDate(m.firstDate)} with no change order on file. Draft request is ${money(amount)} including 12% markup.`,
           amount,
           refId: m.codeId,
-          action: `Submit a change order to ${job?.client ?? "the client"} for ${m.name.toLowerCase()} on ${jobLabel}: ${money(amount)} (${money(m.cost)} cost plus 12% markup). Attach the daily time entries and foreman notes from ${m.firstDate} to ${m.lastDate} as backup.`,
+          action: `Submit a change order to ${job?.client ?? "the client"} for ${m.name} on ${jobLabel}: ${money(amount)} (${money(m.cost)} cost plus 12% markup). Attach the daily time entries and foreman notes from ${shortDate(m.firstDate)} to ${shortDate(m.lastDate)} as backup.`,
           confirmation: `Change order drafted for ${money(amount)} and sent to ${job?.client ?? "the client"} with backup attached.`,
         });
         break;
