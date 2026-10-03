@@ -4,7 +4,7 @@ import { evmSeries } from "@evolv/contracts/evm";
 import { Rng, hashSeed } from "./rng";
 import type { JobKind, JobSpec } from "./world";
 
-const round = (v: number, step = 1) => Math.round(v / step) * step;
+const round = (v: number, step = 1) => Number((Math.round(v / step) * step).toFixed(2));
 const isWorkday = (date: string) => weekday(date) >= 1 && weekday(date) <= 5;
 
 const TICKET_PREFIX: Record<string, string> = {

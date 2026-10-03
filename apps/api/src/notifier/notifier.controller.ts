@@ -20,7 +20,7 @@ export class NotifierController {
   }
 
   @Get("last-delivery")
-  lastDelivery(@Query("locationId") locationId: string) {
-    return this.notifier.lastDelivery(locationId);
+  lastDelivery(@Query("companyId") companyId: string) {
+    return this.notifier.lastDelivery(companyId);
   }
 }

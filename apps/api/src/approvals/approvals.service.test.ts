@@ -3,24 +3,21 @@ import type { Pool, PoolClient } from "pg";
 import type { Approval } from "@evolv/contracts/types";
 import { ApprovalsService } from "./approvals.service";
 import type { ApprovalRepository } from "./approval.repository";
-import type { InventoryReorderExecutor } from "./executors/inventory-reorder.executor";
-import type { MenuChangeExecutor } from "./executors/menu-change.executor";
-import type { ScheduleChangeExecutor } from "./executors/schedule-change.executor";
-import type { KitchenPacingExecutor } from "./executors/kitchen-pacing.executor";
+import type { ChangeOrderExecutor } from "./executors/change-order.executor";
 import type { DefaultExecutor } from "./executors/default.executor";
 
 function approval(overrides: Partial<Approval> = {}): Approval {
   return {
     id: "appr-1",
-    locationId: "prairie-table",
-    agentId: "inventory-guard",
-    title: "Reorder flour",
-    summary: "Flour is running low.",
+    companyId: "foothills-pipeline",
+    agentId: "change-order-catcher",
+    title: "Change order request",
+    summary: "Hours booked with no change order.",
     evidence: [],
     status: "pending",
     proposedAt: "2026-01-01T00:00:00.000Z",
     confirmation: "canned",
-    action: "Reorder flour.",
+    action: "Submit a change order.",
     ...overrides,
   };
 }
@@ -39,71 +36,48 @@ function buildService(overrides: { notFound?: boolean; agentId?: string } = {}) 
     update: vi.fn().mockImplementation(async (id: string, patch: Partial<Approval>) => ({ ...approval(), id, ...patch })),
   } as unknown as ApprovalRepository;
 
-  const inventoryReorder = { execute: vi.fn().mockResolvedValue("inventory confirmation") } as unknown as InventoryReorderExecutor;
-  const menuChange = { execute: vi.fn().mockResolvedValue("menu confirmation") } as unknown as MenuChangeExecutor;
-  const scheduleChange = { execute: vi.fn().mockResolvedValue("schedule confirmation") } as unknown as ScheduleChangeExecutor;
-  const kitchenPacing = { execute: vi.fn().mockResolvedValue("kitchen confirmation") } as unknown as KitchenPacingExecutor;
+  const changeOrder = { execute: vi.fn().mockResolvedValue("change order confirmation") } as unknown as ChangeOrderExecutor;
   const defaultExecutor = { execute: vi.fn().mockResolvedValue("default confirmation") } as unknown as DefaultExecutor;
 
-  const service = new ApprovalsService(pool, store, inventoryReorder, menuChange, scheduleChange, kitchenPacing, defaultExecutor);
-  return { service, store, client, executors: { inventoryReorder, menuChange, scheduleChange, kitchenPacing, defaultExecutor } };
+  const service = new ApprovalsService(pool, store, changeOrder, defaultExecutor);
+  return { service, store, client, executors: { changeOrder, defaultExecutor } };
 }
 
 describe("ApprovalsService.resolve", () => {
-  it("dispatches an approved inventory-guard approval to InventoryReorderExecutor", async () => {
-    const { service, store, executors } = buildService({ agentId: "inventory-guard" });
+  it("dispatches an approved change-order-catcher approval to ChangeOrderExecutor", async () => {
+    const { service, store, executors } = buildService({ agentId: "change-order-catcher" });
     const result = await service.resolve({ approvalId: "appr-1", status: "approved" });
 
-    expect(executors.inventoryReorder.execute).toHaveBeenCalledTimes(1);
+    expect(executors.changeOrder.execute).toHaveBeenCalledTimes(1);
     expect(executors.defaultExecutor.execute).not.toHaveBeenCalled();
-    expect(store.update).toHaveBeenCalledWith(
-      "appr-1",
-      expect.objectContaining({ status: "approved", confirmation: "inventory confirmation" }),
-      expect.anything(),
-    );
-    expect(result.confirmation).toBe("inventory confirmation");
+    expect(store.update).toHaveBeenCalledWith("appr-1", expect.objectContaining({ status: "approved", confirmation: "change order confirmation" }), expect.anything());
+    expect(result.confirmation).toBe("change order confirmation");
   });
 
-  it("routes each known agentId to its own executor", async () => {
-    const cases: Array<[string, string]> = [
-      ["sales-watch", "menu confirmation"],
-      ["labour-optimizer", "schedule confirmation"],
-      ["kitchen-pacing", "kitchen confirmation"],
-    ];
-    for (const [agentId, expected] of cases) {
-      const { service } = buildService({ agentId });
+  it.each(["margin-sentinel", "labor-analyst", "billing-accelerator", "materials-watcher", "safety-coordinator", "some-future-agent"])(
+    "falls back to DefaultExecutor for %s: drafts only, no write-back",
+    async (agentId) => {
+      const { service, executors } = buildService({ agentId });
       const result = await service.resolve({ approvalId: "appr-1", status: "approved" });
-      expect(result.confirmation).toBe(expected);
-    }
-  });
-
-  it("falls back to DefaultExecutor for an unknown agentId", async () => {
-    const { service, executors } = buildService({ agentId: "some-future-agent" });
-    await service.resolve({ approvalId: "appr-1", status: "approved" });
-    expect(executors.defaultExecutor.execute).toHaveBeenCalledTimes(1);
-  });
+      expect(executors.defaultExecutor.execute).toHaveBeenCalledTimes(1);
+      expect(executors.changeOrder.execute).not.toHaveBeenCalled();
+      expect(result.confirmation).toBe("default confirmation");
+    },
+  );
 
   it("does not run any executor when rejecting", async () => {
-    const { service, store, executors } = buildService({ agentId: "inventory-guard" });
+    const { service, store, executors } = buildService({ agentId: "change-order-catcher" });
     const result = await service.resolve({ approvalId: "appr-1", status: "rejected" });
 
-    expect(executors.inventoryReorder.execute).not.toHaveBeenCalled();
+    expect(executors.changeOrder.execute).not.toHaveBeenCalled();
     expect(result.status).toBe("rejected");
-    expect(store.update).toHaveBeenCalledWith(
-      "appr-1",
-      expect.objectContaining({ status: "rejected", confirmation: "canned" }),
-      expect.anything(),
-    );
+    expect(store.update).toHaveBeenCalledWith("appr-1", expect.objectContaining({ status: "rejected", confirmation: "canned" }), expect.anything());
   });
 
   it("uses editedAction over the original action when provided", async () => {
-    const { service, store } = buildService({ agentId: "inventory-guard" });
-    await service.resolve({ approvalId: "appr-1", status: "approved", editedAction: "Reorder from a different supplier." });
-    expect(store.update).toHaveBeenCalledWith(
-      "appr-1",
-      expect.objectContaining({ action: "Reorder from a different supplier." }),
-      expect.anything(),
-    );
+    const { service, store } = buildService({ agentId: "change-order-catcher" });
+    await service.resolve({ approvalId: "appr-1", status: "approved", editedAction: "Submit at cost, no markup." });
+    expect(store.update).toHaveBeenCalledWith("appr-1", expect.objectContaining({ action: "Submit at cost, no markup." }), expect.anything());
   });
 
   it("throws NotFoundException when the approval does not exist", async () => {

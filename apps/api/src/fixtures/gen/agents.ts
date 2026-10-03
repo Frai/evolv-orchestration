@@ -283,6 +283,12 @@ export function generateRuns(c: RunContext): RunOutput {
 // Approvals: one proposal per (agent, source), drawn from the live signals
 // ---------------------------------------------------------------------------
 
+/** First dollar amount in a formatted evidence value, e.g. "$375,324 (38%)" gives 375324. */
+function parseMoney(value: string | undefined): number | undefined {
+  const m = value?.match(/\$([\d,]+)/);
+  return m ? Number(m[1].replace(/,/g, "")) : undefined;
+}
+
 function buildApprovals(c: RunContext): Approval[] {
   const { company, asOf, alerts, input } = c;
   const jobById = new Map(c.jobs.map((j) => [j.id, j]));
@@ -346,7 +352,7 @@ function buildApprovals(c: RunContext): Approval[] {
           ...base,
           title: `Send progress billing package: ${jobLabel}`,
           summary: a.detail,
-          amount: Number(a.evidence.find((e) => e.label === "Unbilled")?.value.replace(/[^0-9.]/g, "").slice(0, 9)) || undefined,
+          amount: parseMoney(a.evidence.find((e) => e.label === "Unbilled")?.value),
           action: `Assemble the progress billing package for ${jobLabel} from approved quantities and daily reports, and send it to the controller for review before it goes to ${job?.client ?? "the client"}.`,
           confirmation: `Billing package for ${jobLabel} sent to the controller. Nothing goes to the client until they approve.`,
         });

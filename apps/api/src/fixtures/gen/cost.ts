@@ -26,7 +26,7 @@ function driftFor(drifts: Drift[] | undefined, code: string, daysAgo: number): n
   return hit ? hit.factor : 1;
 }
 
-const round = (v: number, step = 1) => Math.round(v / step) * step;
+const round = (v: number, step = 1) => Number((Math.round(v / step) * step).toFixed(2));
 
 export function generateJobCost(spec: JobSpec, asOf: string): JobCost {
   const startDate = addDays(asOf, -spec.startedAgo);

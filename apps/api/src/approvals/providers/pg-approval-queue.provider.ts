@@ -7,8 +7,8 @@ import { ApprovalsService } from "../approvals.service";
 export class PgApprovalQueue implements ApprovalQueue {
   constructor(private readonly approvals: ApprovalsService) {}
 
-  async listApprovals(locationId: string): Promise<Approval[]> {
-    return this.approvals.list(locationId);
+  async listApprovals(companyId: string): Promise<Approval[]> {
+    return this.approvals.list(companyId);
   }
 
   async resolve(input: ResolveApprovalInput): Promise<Approval> {

@@ -1,11 +1,18 @@
-import { Pool, type PoolClient } from "pg";
+import { Pool, types, type PoolClient } from "pg";
+
+// Return dates as YYYY-MM-DD strings, numerics as numbers and timestamps as ISO strings, so row mappers
+// never see a JS Date or a numeric string. float8[] is already parsed to number[] by pg.
+types.setTypeParser(1082, (v) => v);
+types.setTypeParser(1700, (v) => parseFloat(v));
+types.setTypeParser(1184, (v) => new Date(v).toISOString());
 
 export const PG_POOL = Symbol("PG_POOL");
 
 export function createPgPool(): Pool {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error("DATABASE_URL is not set");
-  return new Pool({ connectionString, ssl: { rejectUnauthorized: false } });
+  const local = /localhost|127\.0\.0\.1/.test(connectionString);
+  return new Pool({ connectionString, ssl: local ? false : { rejectUnauthorized: false } });
 }
 
 /** A repository method's DB handle: either the shared pool, or a client already inside a transaction. */
