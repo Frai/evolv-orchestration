@@ -1,63 +1,69 @@
-import type { LabourDay, SalesDay, Shift } from "../domain";
-import { addDays } from "./dates";
-import { findDay } from "./sales";
+import type { CostDay, DateRange } from "../domain";
+import { addDays, isWithin, weekday } from "./dates";
 
-export function aggregateLabourDays(rows: LabourDay[], locationId: string): LabourDay[] {
-  const byDate = new Map<string, LabourDay>();
-  for (const r of rows) {
-    const cur = byDate.get(r.date);
-    if (!cur) {
-      byDate.set(r.date, { ...r, locationId, outletId: undefined, shifts: r.shifts.map((s) => ({ ...s, id: r.outletId ? `${r.outletId}:${s.id}` : s.id })) });
-      continue;
-    }
-    cur.scheduledHours += r.scheduledHours;
-    cur.actualHours += r.actualHours;
-    cur.labourCost += r.labourCost;
-    cur.shifts = cur.shifts.concat(r.shifts.map((s) => ({ ...s, id: r.outletId ? `${r.outletId}:${s.id}` : s.id })));
-  }
-  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+export interface WeekHours {
+  /** Monday of the week, YYYY-MM-DD */
+  weekStart: string;
+  regular: number;
+  overtime: number;
+  cost: number;
 }
 
-export function labourPct(labour: LabourDay | undefined, sales: SalesDay | undefined): number | null {
-  if (!labour || !sales || !sales.netSales) return null;
-  return labour.labourCost / sales.netSales;
+/** Monday of the week containing `date`. */
+export function weekStart(date: string): string {
+  return addDays(date, -((weekday(date) + 6) % 7));
 }
 
-export function labourPctBaseline(labourDays: LabourDay[], salesDays: SalesDay[], date: string, weeks = 4): number | null {
-  const vals: number[] = [];
-  for (let w = 1; w <= weeks; w++) {
-    const d = addDays(date, -7 * w);
-    const p = labourPct(labourDays.find((l) => l.date === d), findDay(salesDays, d));
-    if (p !== null) vals.push(p);
-  }
-  if (!vals.length) return null;
-  return vals.reduce((a, b) => a + b, 0) / vals.length;
-}
-
-export interface FlaggedShift {
-  date: string;
-  shift: Shift;
-  excessStaff: number;
-  /** Positive = money that could be saved (overstaffed). */
-  costImpact: number;
-  hoursInWindow: number;
-}
-
-export function shiftHours(s: Shift): number {
-  const [sh, sm] = s.start.split(":").map(Number);
-  const [eh, em] = s.end.split(":").map(Number);
-  return eh + em / 60 - (sh + sm / 60);
-}
-
-export function flaggedShifts(days: LabourDay[], flag: "overstaffed" | "understaffed"): FlaggedShift[] {
-  const out: FlaggedShift[] = [];
+export function hoursInRange(days: CostDay[], range: DateRange): { total: number; overtime: number } {
+  let total = 0;
+  let overtime = 0;
   for (const d of days) {
-    for (const s of d.shifts) {
-      if (s.flag !== flag) continue;
-      const excess = s.actualStaff - s.neededStaff;
-      const h = shiftHours(s);
-      out.push({ date: d.date, shift: s, excessStaff: excess, costImpact: excess * h * s.hourlyRate, hoursInWindow: h });
-    }
+    if (!d.hours || !isWithin(d.date, range)) continue;
+    total += d.hours;
+    overtime += d.overtimeHours;
   }
-  return out.sort((a, b) => b.date.localeCompare(a.date));
+  return { total, overtime };
+}
+
+/** Overtime as a share of labour hours; null when no labour hours were booked. */
+export function overtimePct(days: CostDay[], range: DateRange): number | null {
+  const { total, overtime } = hoursInRange(days, range);
+  return total > 0 ? overtime / total : null;
+}
+
+/** Weekly labour hours split into regular and overtime, oldest week first. */
+export function weeklyHours(days: CostDay[], range: DateRange): WeekHours[] {
+  const weeks = new Map<string, WeekHours>();
+  for (const d of days) {
+    if (!d.hours || !isWithin(d.date, range)) continue;
+    const key = weekStart(d.date);
+    let w = weeks.get(key);
+    if (!w) weeks.set(key, (w = { weekStart: key, regular: 0, overtime: 0, cost: 0 }));
+    w.regular += d.hours - d.overtimeHours;
+    w.overtime += d.overtimeHours;
+    w.cost += d.cost;
+  }
+  return [...weeks.values()].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+}
+
+export interface CodeHours {
+  codeId: string;
+  hours: number;
+  overtime: number;
+  overtimePct: number;
+}
+
+/** Labour hours per cost code over a range, heaviest overtime share first. */
+export function hoursByCode(days: CostDay[], range: DateRange): CodeHours[] {
+  const m = new Map<string, { hours: number; overtime: number }>();
+  for (const d of days) {
+    if (!d.hours || !isWithin(d.date, range)) continue;
+    const cur = m.get(d.codeId) ?? { hours: 0, overtime: 0 };
+    cur.hours += d.hours;
+    cur.overtime += d.overtimeHours;
+    m.set(d.codeId, cur);
+  }
+  return [...m.entries()]
+    .map(([codeId, v]) => ({ codeId, hours: v.hours, overtime: v.overtime, overtimePct: v.hours ? v.overtime / v.hours : 0 }))
+    .sort((a, b) => b.overtimePct - a.overtimePct);
 }

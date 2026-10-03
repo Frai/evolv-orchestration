@@ -2,10 +2,10 @@ import type { Agent, AgentRun, OrchestratorSummary } from "../domain";
 
 export interface AgentRunner {
   listAgents(): Promise<Agent[]>;
-  listRuns(locationId: string, agentId?: string): Promise<AgentRun[]>;
+  listRuns(companyId: string, agentId?: string): Promise<AgentRun[]>;
   getRun(runId: string): Promise<AgentRun | undefined>;
   /** Summary of the most recent overnight cycle. */
-  lastCycle(locationId: string): Promise<OrchestratorSummary>;
+  lastCycle(companyId: string): Promise<OrchestratorSummary>;
   /** Runs one agent's cycle live, on demand, and persists the resulting run. */
-  runNow(locationId: string, agentId: string): Promise<AgentRun>;
+  runNow(companyId: string, agentId: string): Promise<AgentRun>;
 }

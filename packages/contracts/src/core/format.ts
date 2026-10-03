@@ -10,6 +10,7 @@ export function moneyExact(v: number): string {
   return cadCents.format(v);
 }
 export function moneyCompact(v: number): string {
+  if (Math.abs(v) >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`;
   if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1)}k`;
   return cad.format(v);
 }
@@ -62,4 +63,8 @@ export function durationMs(ms: number): string {
 }
 export function hours(h: number): string {
   return `${num1.format(h)} h`;
+}
+/** Performance index (CPI / SPI) to two decimals, e.g. "0.91". */
+export function index(v: number | null): string {
+  return v === null ? "n/a" : v.toFixed(2);
 }

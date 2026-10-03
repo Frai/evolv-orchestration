@@ -8,7 +8,7 @@ export interface ResolveApprovalInput {
 }
 
 export interface ApprovalQueue {
-  listApprovals(locationId: string): Promise<Approval[]>;
+  listApprovals(companyId: string): Promise<Approval[]>;
   /** Persists the decision and, if approved, triggers downstream execution before returning. */
   resolve(input: ResolveApprovalInput): Promise<Approval>;
 }

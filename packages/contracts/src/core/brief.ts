@@ -1,87 +1,101 @@
-import type { LabourDay, Location, SalesDay } from "../domain";
-import { WEEKDAY_LONG, weekday } from "./dates";
-import { deliveryShare, delta, findDay, peakHour, sameWeekdayBaseline } from "./sales";
-import { labourPct, labourPctBaseline } from "./labour";
-import { capacityFor, kitchenSeverity, peakKitchenLoad } from "./kitchen";
+import type { Alert, ChangeOrder, Company, CostCode, CostDay, FieldTicket, Invoice, Job } from "../domain";
+import { WEEKDAY_LONG, addDays, weekday } from "./dates";
+import { jobEvm, portfolioMargin, trailingCpi, type JobEvm } from "./evm";
+import { overtimePct } from "./labour";
+import { billingLag, missingChangeOrders, ticketLeakage } from "./billing";
+
+export interface BriefJob {
+  jobId: string;
+  name: string;
+  marginAtCompletion: number;
+  marginDelta: number | null;
+  cpi: number | null;
+  trailingCpi: number | null;
+  pctComplete: number;
+}
 
 export interface BriefInput {
-  locationId: string;
+  companyId: string;
   date: string;
   weekdayName: string;
-  netSales: number;
-  netSalesBaseline: number | null;
-  netSalesDelta: number | null;
-  lastYearNetSales: number;
-  yoyDelta: number | null;
-  covers: number;
-  coversBaseline: number | null;
-  coversDelta: number | null;
-  orders: number;
-  avgCheck: number;
-  labourPct: number | null;
-  labourPctBaseline: number | null;
-  labourPctDelta: number | null;
-  targetLabourPct: number;
-  deliveryShare: number;
-  deliveryShareBaseline: number | null;
-  deliveryShareDelta: number | null;
-  peakHourIndex: number;
-  peakHourSales: number;
-  channels: SalesDay["channels"];
-  kitchenPeakHourIndex: number;
-  kitchenPeakOrders: number;
-  kitchenCapacity: number;
-  kitchenPeakRatio: number;
-  kitchenSeverity: "critical" | "warning" | null;
+  targetMarginPct: number;
+  marginAtCompletion: number;
+  /** Portfolio forecast margin one week earlier. */
+  marginPrev: number | null;
+  marginDelta: number | null;
+  marginDollars: number;
+  jobs: BriefJob[];
+  /** Job with the lowest forecast margin relative to target. */
+  worstJob: BriefJob | null;
+  unbilledWork: number;
+  ticketsAtRisk: number;
+  missingChangeOrderCost: number;
+  overtimePct: number | null;
+  overtimePctPrev: number | null;
+  criticalAlerts: number;
+  warningAlerts: number;
+}
+
+export interface BriefData {
+  company: Company;
+  date: string;
+  jobs: Job[];
+  codes: CostCode[];
+  costDays: CostDay[];
+  tickets: FieldTicket[];
+  invoices: Invoice[];
+  changeOrders: ChangeOrder[];
+  alerts: Alert[];
 }
 
 /**
  * Computes everything a narrator needs to write the day's brief.
- * Deltas are against the same weekday over the previous four weeks.
+ * Deltas are against the same portfolio one week earlier.
  */
-export function buildBriefInput(location: Location, date: string, salesDays: SalesDay[], labourDays: LabourDay[]): BriefInput | null {
-  const day = findDay(salesDays, date);
-  if (!day) return null;
-  const labour = labourDays.find((l) => l.date === date);
+export function buildBriefInput(data: BriefData): BriefInput | null {
+  const { company, date, jobs, codes, costDays, tickets, invoices, changeOrders, alerts } = data;
+  if (!jobs.length) return null;
+  const prevDate = addDays(date, -7);
 
-  const netSalesBaseline = sameWeekdayBaseline(salesDays, date);
-  const coversBaseline = sameWeekdayBaseline(salesDays, date, 4, (d) => d.covers);
-  const shareBaseline = sameWeekdayBaseline(salesDays, date, 4, deliveryShare);
-  const lp = labourPct(labour, day);
-  const lpBase = labourPctBaseline(labourDays, salesDays, date);
-  const peak = peakHour(day);
-  const share = deliveryShare(day);
-  const capacity = capacityFor(location);
-  const kitchenPeak = peakKitchenLoad(day, capacity);
+  const evms: JobEvm[] = jobs.map((j) => jobEvm(j, codes, costDays, date));
+  const prevEvms: JobEvm[] = jobs.map((j) => jobEvm(j, codes, costDays, prevDate));
+  const port = portfolioMargin(jobs, evms);
+  const prevPort = prevEvms.some((e) => e.ac > 0) ? portfolioMargin(jobs, prevEvms) : null;
+
+  const briefJobs: BriefJob[] = jobs.map((j, i) => ({
+    jobId: j.id,
+    name: j.name,
+    marginAtCompletion: evms[i].marginAtCompletion,
+    marginDelta: prevEvms[i].ac > 0 ? evms[i].marginAtCompletion - prevEvms[i].marginAtCompletion : null,
+    cpi: evms[i].cpi,
+    trailingCpi: trailingCpi(j, codes, costDays, date),
+    pctComplete: evms[i].pctComplete,
+  }));
+  const worstJob = [...briefJobs].sort((a, b) => a.marginAtCompletion - b.marginAtCompletion)[0] ?? null;
+
+  const unbilledWork = jobs.reduce((a, j, i) => a + billingLag(j, evms[i], invoices).lag, 0);
+  const ticketsAtRisk = ticketLeakage(tickets, date).atRisk;
+  const missing = missingChangeOrders(codes, costDays, changeOrders, date).reduce((a, m) => a + m.cost, 0);
+  const week = { from: addDays(date, -6), to: date };
+  const prevWeek = { from: addDays(date, -13), to: addDays(date, -7) };
 
   return {
-    locationId: location.id,
+    companyId: company.id,
     date,
     weekdayName: WEEKDAY_LONG[weekday(date)],
-    netSales: day.netSales,
-    netSalesBaseline,
-    netSalesDelta: delta(day.netSales, netSalesBaseline),
-    lastYearNetSales: day.lastYearNetSales,
-    yoyDelta: delta(day.netSales, day.lastYearNetSales),
-    covers: day.covers,
-    coversBaseline,
-    coversDelta: delta(day.covers, coversBaseline),
-    orders: day.orders,
-    avgCheck: day.covers ? day.netSales / day.covers : 0,
-    labourPct: lp,
-    labourPctBaseline: lpBase,
-    labourPctDelta: lp !== null && lpBase !== null ? lp - lpBase : null,
-    targetLabourPct: location.targetLabourPct,
-    deliveryShare: share,
-    deliveryShareBaseline: shareBaseline,
-    deliveryShareDelta: shareBaseline !== null ? share - shareBaseline : null,
-    peakHourIndex: peak.index,
-    peakHourSales: peak.value,
-    channels: day.channels,
-    kitchenPeakHourIndex: kitchenPeak.index,
-    kitchenPeakOrders: kitchenPeak.orders,
-    kitchenCapacity: capacity,
-    kitchenPeakRatio: kitchenPeak.ratio,
-    kitchenSeverity: kitchenSeverity(kitchenPeak.ratio),
+    targetMarginPct: company.targetMarginPct,
+    marginAtCompletion: port.marginAtCompletion,
+    marginPrev: prevPort ? prevPort.marginAtCompletion : null,
+    marginDelta: prevPort ? port.marginAtCompletion - prevPort.marginAtCompletion : null,
+    marginDollars: port.marginDollars,
+    jobs: briefJobs,
+    worstJob,
+    unbilledWork,
+    ticketsAtRisk,
+    missingChangeOrderCost: missing,
+    overtimePct: overtimePct(costDays, week),
+    overtimePctPrev: overtimePct(costDays, prevWeek),
+    criticalAlerts: alerts.filter((a) => a.severity === "critical").length,
+    warningAlerts: alerts.filter((a) => a.severity === "warning").length,
   };
 }

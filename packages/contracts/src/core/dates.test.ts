@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, daysBetween, hourLabel, isWithin, rangeEndingAt, weekday, weekdayName } from "./dates";
+import { addDays, daysBetween, isWithin, rangeEndingAt, weekday, weekdayName } from "./dates";
 
 describe("addDays", () => {
   it("adds positive days without drifting across a month boundary", () => {
@@ -43,15 +43,5 @@ describe("isWithin", () => {
     expect(isWithin("2026-01-31", range)).toBe(true);
     expect(isWithin("2025-12-31", range)).toBe(false);
     expect(isWithin("2026-02-01", range)).toBe(false);
-  });
-});
-
-describe("hourLabel", () => {
-  it("offsets from the default HOUR_START", () => {
-    expect(hourLabel(0)).toBe("07:00");
-    expect(hourLabel(16)).toBe("23:00");
-  });
-  it("accepts a custom start", () => {
-    expect(hourLabel(2, 0)).toBe("02:00");
   });
 });
