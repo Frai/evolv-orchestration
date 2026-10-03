@@ -1,5 +1,7 @@
 # Evolv demo site
 
+> **Branch `oil-gas-pivot`:** Evolv is being repositioned from restaurants to oil & gas field service and construction contractors. Pivot plan and systems landscape: [`docs/OIL_GAS_PIVOT.md`](docs/OIL_GAS_PIVOT.md). The code below still describes the restaurant demo until the pivot is implemented.
+
 A clickable, fully mocked web app that looks like the finished Evolv product. Built for the LOI restaurants and hotels to click through and react to. Nothing here talks to a real vendor, and no model is called at runtime.
 
 This is a Turborepo monorepo: a Next.js frontend (`apps/web`) talking over HTTP to a NestJS backend (`apps/api`). See **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** for the full picture — the hexagonal split, the 9 ports and their modules, and how to wire in a real vendor later.
