@@ -71,7 +71,7 @@ export interface FixtureSet {
 }
 
 export function buildFixtureSet(): FixtureSet {
-  const today = process.env.FIXTURE_TODAY ?? todayISO();
+  const today = process.env.NEXT_PUBLIC_FIXTURE_TODAY ?? todayISO();
   // "Yesterday" is the last day with job cost: crews book nothing on weekends, so a weekend demo shows Friday.
   let asOf = addDays(today, -1);
   while (weekday(asOf) === 0 || weekday(asOf) === 6) asOf = addDays(asOf, -1);

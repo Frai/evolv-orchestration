@@ -2,28 +2,28 @@
 
 A clickable demo of Evolv for oil and gas field service and construction contractors. Evolv sits above a contractor's existing accounting, estimating, timekeeping, ticketing, fleet and safety systems and turns them into an operating picture: early warning of margin erosion, unbilled work, stuck field tickets, late material and overdue safety follow-up, with human-approved actions.
 
-The data is synthetic and deterministic. The signal rules are real: they run at request time over the canonical model, so what you see is what the rules would say about real data. No vendor is called and no model runs at runtime. Plan and rationale: [`docs/OIL_GAS_PIVOT.md`](docs/OIL_GAS_PIVOT.md). Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+**The whole thing runs in the browser.** There is no backend and no database. The data is synthetic and deterministic, generated on first load. The signal rules are real: they run over the canonical model at request time, so what you see is what the rules would say about real data. No vendor is called and no model runs. Plan and rationale: [`docs/OIL_GAS_PIVOT.md`](docs/OIL_GAS_PIVOT.md). Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-This is a Turborepo monorepo: a Next.js frontend (`apps/web`) over a NestJS backend (`apps/api`) that holds the demo world in memory, with shared domain code in `packages/contracts`.
+This is a Turborepo monorepo: a Next.js static site (`apps/web`) and shared domain code (`packages/contracts`).
 
 ## Run it
 
 ```bash
 npm install
-npm run dev          # apps/web on :3000, apps/api on :3001
-npm run test         # contracts, api and web unit tests
+npm run dev      # http://localhost:3000
+npm run test     # contracts and web unit tests
+npm run build    # static export to apps/web/out
 ```
 
-There is no database. `apps/api` builds the whole mock world in memory at startup (`WEB_ORIGIN` must match the web origin for CORS; see `apps/api/.env.example`). `apps/web` needs `NEXT_PUBLIC_API_BASE_URL` (see `apps/web/.env.local.example`). Set `FIXTURE_TODAY=YYYY-MM-DD` to pin "yesterday". State changes (approving a draft) live in the API process and reset when it restarts.
-
-Sign in with any email and password. The session lives in memory and resets on reload.
+Sign in with any email and password. Everything resets on reload. Set `NEXT_PUBLIC_FIXTURE_TODAY=YYYY-MM-DD` to pin "yesterday" (it otherwise follows the real date, skipping weekends).
 
 ## Layout
 
 ```
 apps/web                Next.js frontend (App Router, static export)
-apps/api                NestJS backend, one module per port
-  src/fixtures/gen      seeded generator for the mock world
+  src/demo              the fake world: seeded generator (gen/), in-browser store, and the nine
+                        ports from @evolv/contracts implemented over it (backend.ts)
+  src/lib/api-client.ts the only way pages get data; today it delegates to src/demo/backend.ts
 packages/contracts      shared, framework-free: domain types, port interfaces, and the pure
                         domain functions (EVM, billing leakage, alert rules, brief inputs)
 ```
@@ -41,8 +41,8 @@ Every signal is a self-explaining record: severity, evidence, suggested action a
 
 ## Pages
 
-Today, Jobs (earned-value S-curve and cost-code drill-down), Labour (overtime), Billing (field tickets, progress billing, change orders), Resources (equipment, materials and subcontracts, safety), Approvals, Agents, Integrations, Settings, and a fake Login. Every page works at 390px wide by construction (responsive grids, scrolling tables), though the mobile layout has not been checked in a browser since the rewrite.
+Today, Jobs (earned-value S-curve and cost-code drill-down), Labour (overtime), Billing (field tickets, progress billing, change orders), Resources (equipment, materials and subcontracts, safety), Approvals, Agents, Integrations, Settings, and a fake Login. The layout is responsive by construction (responsive grids, scrolling tables), though the mobile layout has not been checked in a browser since the rewrite.
 
 ## The one real write
 
-Approving a Change-Order Catcher draft adds a pending change order for the extra-work cost code. The "booked with no change order" signal then clears on the next load. Every other agent drafts only: a person sends the email, the billing package or the reminder. Nothing writes back to accounting, payroll or safety systems, and safety is routed and reminded, never decided.
+Approving a Change-Order Catcher draft adds a pending change order for the extra-work cost code in the in-browser store, and the "booked with no change order" signal then clears. Every other agent drafts only: a person sends the email, the billing package or the reminder. Nothing writes back to accounting, payroll or safety systems, and safety is routed and reminded, never decided.

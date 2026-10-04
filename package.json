@@ -12,8 +12,7 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "test": "turbo run test",
-    "fixtures": "npm run fixtures --workspace=@evolv/api"
+    "test": "turbo run test"
   },
   "devDependencies": {
     "turbo": "^2.5.4",

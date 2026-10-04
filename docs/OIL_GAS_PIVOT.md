@@ -1,6 +1,6 @@
 # Oil & Gas pivot
 
-Branch: `oil-gas-pivot` (cut from `supabase-persistence`). Status: the demo has been rewritten for contractors (domain, API, fixtures, web). The connector SDK and real pilot build have not started.
+Branch: `oil-gas-pivot` (cut from `supabase-persistence`). Status: the demo has been rewritten for contractors (domain, fixtures, web). The connector SDK and real pilot build have not started.
 
 Source docs: `Evolv_OG_One-Pager.pdf` and `Evolv_Orchestrator_Build_Plan.docx` (October 2026).
 
@@ -50,5 +50,5 @@ Operator-side (out of scope, listed for context): Quorum, Enverus/P2, WolfePak, 
 ## Open items
 
 - Pilot customer: not identified. Entire connector set depends on one contractor's real systems. Target 5 discovery calls (Calgary / Alberta) before further build.
-- Stack divergence: the build plan specifies Python / FastAPI / React; this repo is NestJS / Next.js with an in-memory demo store. Decide whether the demo stays on the current stack.
+- Stack divergence: the build plan specifies Python / FastAPI / React; this repo is a static Next.js demo with no backend. Decide whether the demo stays on the current stack.
 - Ownership of the connector SDK long-term (core Evolv role vs customer-maintained).

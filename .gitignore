@@ -19,12 +19,9 @@ out/
 AGENTS.md
 CLAUDE.md
 
-# nest / turbo
+# turbo
 dist/
 .turbo/
-
-# generated fixtures
-apps/api/src/fixtures/data/*.json
 
 # production
 /build

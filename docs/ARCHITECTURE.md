@@ -2,33 +2,30 @@
 
 ## What this system is
 
-Evolv for oil and gas contractors: a read-mostly layer above a contractor's existing project, accounting, timekeeping, ticketing, fleet and safety systems. This repo is a demo: a fully clickable product whose backend holds a seeded, deterministic world in memory. There is no database. Nothing talks to a real vendor and no model runs at runtime. See `docs/OIL_GAS_PIVOT.md` for the segment, the systems landscape and the build plan this follows.
+Evolv for oil and gas contractors: a read-mostly layer above a contractor's existing project, accounting, timekeeping, ticketing, fleet and safety systems. This repo is a demo, and the demo is fake on purpose: a static Next.js site that generates a seeded, deterministic world in the browser. There is no backend and no database, nothing talks to a real vendor, and no model runs. See `docs/OIL_GAS_PIVOT.md` for the segment, the systems landscape and the build plan this follows.
 
-## Hexagonal architecture across two apps
+## Hexagonal architecture, in one app
 
 ```
 apps/web (Next.js, "use client" pages)
-     |  fetch() via src/lib/api-client.ts
+     |  apiClient.<port>.<method>()                    src/lib/api-client.ts
      v
-apps/api (NestJS)
-  Controllers  (HTTP surface, one per port)
+Ports  (interfaces in packages/contracts)
      |
-  Providers    (adapters: inject a port token, implement a port interface)
-     |
-  Ports        (interfaces, defined in packages/contracts)
-     |
-     +--> MemProjectSource, MemBillingSource, ...   (read the in-memory store; live today)
-     +--> real connectors (Vista, Sage, FieldCap, OpenInvoice, ExakTime, ...)   (future: new provider classes)
+     +--> src/demo/backend.ts   implements all nine ports over the in-browser store   (live today)
+     +--> real connectors (Vista, Sage, FieldCap, OpenInvoice, ExakTime, ...)          (future)
 
 packages/contracts
-  domain types + port interfaces + pure domain functions, shared by both apps
+  domain types + port interfaces + pure domain functions, used by the pages and the demo backend
 ```
+
+The ports are the seam. Pages call `apiClient`, which today delegates to `src/demo/backend.ts`. A real build keeps the pages and `packages/contracts` and swaps the backend for connectors behind the same interfaces, on a server this time.
 
 ## Layer contracts
 
-- **`apps/web`** imports only from `@evolv/contracts` (types and pure functions) and its own `src/lib/api-client.ts`. It never imports a fixture, a provider or anything from `apps/api`. Dashboards load one `Snapshot` per company (`loadSnapshot`) and compute everything else in the browser with the pure functions, so signals, forecasts and the brief inputs are the same code the backend would run.
-- **`apps/api`** is the only thing that touches the fixtures or, eventually, a vendor API key. Controllers depend on port interfaces, never concrete providers.
-- **`packages/contracts`** stays framework-free: no React, no Nest decorators, no `fetch`.
+- **Pages and components** import only from `@evolv/contracts` (types and pure functions) and `src/lib/api-client.ts`. They never import from `src/demo`. Dashboards load one `Snapshot` per company (`loadSnapshot`) and compute everything else with the pure functions, so signals, forecasts and brief inputs are the same code a server would run.
+- **`src/demo`** is the only code that knows the data is fake: the generator (`gen/`), the store (`store.ts`) and the port implementations (`backend.ts`).
+- **`packages/contracts`** stays framework-free: no React, no `fetch`.
 
 ## Canonical model
 
@@ -36,17 +33,17 @@ Every source dialect translates into one small model (`domain.ts`): `Company`, `
 
 ## The ports
 
-| Port | Module / controller | Provider | What it stands for |
-|---|---|---|---|
-| `ProjectSource` | `projects/` at `/projects` | `MemProjectSource` | Accounting job cost, estimate, timekeeping, field progress |
-| `BillingSource` | `billing/` at `/billing` | `MemBillingSource` | Field tickets, progress invoices, change orders |
-| `ResourceSource` | `resources/` at `/resources` | `MemResourceSource` | Fleet telematics, purchase orders, subcontracts |
-| `SafetySource` | `safety/` at `/safety` | `MemSafetySource` | Incidents, near-misses, corrective actions |
-| `Narrator` | `narrator/` at `/narrator` | `MemNarrator` | Pre-written daily briefs and Q&A |
-| `Notifier` | `notifier/` at `/notifier` | `MemNotifier` | Delivery log |
-| `AgentRunner` | `agents/` at `/agents` | `MemAgentRunner` | Agent runs and traces |
-| `ApprovalQueue` | `approvals/` at `/approvals` | `MemApprovalQueue` | Draft actions awaiting a human |
-| `IntegrationRegistry` | `integrations/` at `/integrations` | `MemIntegrationRegistry` | Which source systems are connected |
+| Port | Backed by (demo) | What it stands for |
+|---|---|---|
+| `ProjectSource` | `projects` in `backend.ts` | Accounting job cost, estimate, timekeeping, field progress |
+| `BillingSource` | `billing` | Field tickets, progress invoices, change orders |
+| `ResourceSource` | `resources` | Fleet telematics, purchase orders, subcontracts |
+| `SafetySource` | `safety` | Incidents, near-misses, corrective actions |
+| `Narrator` | `narrator` | Pre-written daily briefs and Q&A |
+| `Notifier` | `notifier` | Delivery log |
+| `AgentRunner` | `agents` | Agent runs and traces |
+| `ApprovalQueue` | `approvals` | Draft actions awaiting a human |
+| `IntegrationRegistry` | `integrations` | Which source systems are connected |
 
 ## Insight rules (`packages/contracts/src/core`)
 
@@ -58,14 +55,18 @@ Every source dialect translates into one small model (`domain.ts`): `Company`, `
 
 ## Approvals and the one real write
 
-`ApprovalsService.resolve` records a decision once; resolving an already-decided approval does nothing, so it cannot write twice. Approving a `change-order-catcher` draft runs `ChangeOrderExecutor`, which adds a pending change order for the extra-work cost code. Every other agent falls through to `DefaultExecutor`, which only records the decision: Evolv drafts, a person sends. No agent writes to accounting, payroll or safety systems.
+`approvals.resolve` records a decision once; resolving an already-decided approval does nothing, so it cannot write twice. Approving a `change-order-catcher` draft also adds a pending change order for the extra-work cost code, so the "no change order on file" signal clears on the next snapshot load. Every other agent only records the decision: Evolv drafts, a person sends. No agent writes to accounting, payroll or safety systems.
+
+## The fake world
+
+`gen/build.ts` assembles four contractors with three jobs each. It is seeded, so the same date always gives the same numbers, and "yesterday" is the last weekday because crews book no cost on weekends. Stories are planted on purpose (margin erosion, unbilled extra work, stuck tickets, late material, overdue safety action) and the rules find them for real. Only the latest day's agent runs and approvals come from the live signals; earlier days are "no action" or "still open". The world is built on first use and held in memory (`store.ts`), so it resets on reload.
 
 ## How to add a real connector
 
-1. Implement the port interface in a new provider class, e.g. a Vista export reader implementing `ProjectSource`. Each connector extracts, normalizes into the canonical model through the job's cost-code mapping table, validates (totals tie out, no duplicate keys) and upserts with source lineage.
-2. Change `useClass` for that port's token in the module file, or use `useFactory` to choose per company.
-3. Nothing else changes. The web app and `packages/contracts` never knew which class sat behind the token.
+1. Implement the port interface in a new class on a server, e.g. a Vista export reader implementing `ProjectSource`. Each connector extracts, normalizes into the canonical model through the job's cost-code mapping table, validates (totals tie out, no duplicate keys) and upserts with source lineage.
+2. Replace the matching assignment in `src/lib/api-client.ts` with a fetch client that has the same method names.
+3. Nothing else changes. The pages and `packages/contracts` never knew the data was fake.
 
 ## Local dev and deploy
 
-See the README for commands. `apps/web` and `apps/api` deploy as two Vercel projects (`apps/api/api/index.ts` wraps Nest as an Express handler). `apps/api` needs only `WEB_ORIGIN`; `apps/web` needs `NEXT_PUBLIC_API_BASE_URL`. Each API instance builds its own copy of the world, so on serverless hosting an approval is visible only to the instance that handled it; that is acceptable for a demo and is the reason a real deployment needs persistence.
+`npm run dev`, `npm run test`, `npm run build` (static export to `apps/web/out`). It deploys as a single Vercel project with root `apps/web`; `apps/web/vercel.json` installs from the repo root and builds contracts then web. No environment variables are needed.
