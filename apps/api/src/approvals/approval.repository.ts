@@ -5,13 +5,13 @@ import { PG_POOL, type Executor } from "../db/pg-pool.provider";
 
 interface ApprovalRow {
   id: string;
-  location_id: string;
+  company_id: string;
   agent_id: string;
   run_id: string | null;
   title: string;
   summary: string;
   amount: string | null;
-  item_id: string | null;
+  ref_id: string | null;
   evidence: Approval["evidence"];
   status: Approval["status"];
   proposed_at: string;
@@ -21,13 +21,13 @@ interface ApprovalRow {
 }
 const mapRow = (r: ApprovalRow): Approval => ({
   id: r.id,
-  locationId: r.location_id,
+  companyId: r.company_id,
   agentId: r.agent_id,
   runId: r.run_id ?? undefined,
   title: r.title,
   summary: r.summary,
   amount: r.amount === null ? undefined : Number(r.amount),
-  itemId: r.item_id ?? undefined,
+  refId: r.ref_id ?? undefined,
   evidence: r.evidence,
   status: r.status,
   proposedAt: r.proposed_at,
@@ -41,8 +41,8 @@ const mapRow = (r: ApprovalRow): Approval => ({
 export class ApprovalRepository {
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
-  async list(locationId: string): Promise<Approval[]> {
-    const { rows } = await this.pool.query<ApprovalRow>(`select * from approvals where location_id = $1 order by proposed_at desc`, [locationId]);
+  async list(companyId: string): Promise<Approval[]> {
+    const { rows } = await this.pool.query<ApprovalRow>(`select * from approvals where company_id = $1 order by proposed_at desc`, [companyId]);
     return rows.map(mapRow);
   }
 

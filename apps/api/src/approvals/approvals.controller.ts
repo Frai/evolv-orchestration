@@ -12,8 +12,8 @@ export class ApprovalsController {
   constructor(@Inject(APPROVAL_QUEUE) private readonly queue: ApprovalQueue) {}
 
   @Get()
-  listApprovals(@Query("locationId") locationId: string) {
-    return this.queue.listApprovals(locationId);
+  listApprovals(@Query("companyId") companyId: string) {
+    return this.queue.listApprovals(companyId);
   }
 
   @Post(":id/resolve")

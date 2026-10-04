@@ -5,10 +5,7 @@ import type { ResolveApprovalInput } from "@evolv/contracts/ports";
 import { PG_POOL, withTransaction } from "../db/pg-pool.provider";
 import { ApprovalRepository } from "./approval.repository";
 import type { ApprovalExecutor } from "./executors/approval-executor";
-import { InventoryReorderExecutor } from "./executors/inventory-reorder.executor";
-import { MenuChangeExecutor } from "./executors/menu-change.executor";
-import { ScheduleChangeExecutor } from "./executors/schedule-change.executor";
-import { KitchenPacingExecutor } from "./executors/kitchen-pacing.executor";
+import { ChangeOrderExecutor } from "./executors/change-order.executor";
 import { DefaultExecutor } from "./executors/default.executor";
 
 /** Resolves approvals and dispatches to the right execution handler by agentId. */
@@ -19,18 +16,11 @@ export class ApprovalsService {
   constructor(
     @Inject(PG_POOL) private readonly pool: Pool,
     private readonly store: ApprovalRepository,
-    inventoryReorder: InventoryReorderExecutor,
-    menuChange: MenuChangeExecutor,
-    scheduleChange: ScheduleChangeExecutor,
-    kitchenPacing: KitchenPacingExecutor,
+    changeOrder: ChangeOrderExecutor,
     private readonly defaultExecutor: DefaultExecutor,
   ) {
-    this.executors = {
-      "inventory-guard": inventoryReorder,
-      "sales-watch": menuChange,
-      "labour-optimizer": scheduleChange,
-      "kitchen-pacing": kitchenPacing,
-    };
+    // Only the Change-Order Catcher writes anything. Every other agent drafts and a person sends.
+    this.executors = { "change-order-catcher": changeOrder };
   }
 
   list(locationId: string): Promise<Approval[]> {

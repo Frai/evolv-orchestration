@@ -7,7 +7,7 @@ export class IntegrationsController {
   constructor(@Inject(INTEGRATION_REGISTRY) private readonly registry: IntegrationRegistry) {}
 
   @Get()
-  listIntegrations(@Query("locationId") locationId: string) {
-    return this.registry.listIntegrations(locationId);
+  listIntegrations(@Query("companyId") companyId: string) {
+    return this.registry.listIntegrations(companyId);
   }
 }

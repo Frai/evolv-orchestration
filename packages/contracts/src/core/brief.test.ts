@@ -1,93 +1,67 @@
 import { describe, expect, it } from "vitest";
-import type { LabourDay, Location, SalesDay } from "../domain";
-import { HOUR_COUNT } from "../domain";
-import { buildBriefInput } from "./brief";
+import { buildBriefInput, type BriefData } from "./brief";
+import { COMPANY, JOB, code, day } from "./test-helpers";
 
-const LOCATION: Location = {
-  id: "prairie-table",
-  name: "Prairie Table",
-  shortName: "Prairie",
-  type: "full_service",
-  pos: "toast",
-  city: "Calgary",
-  currency: "CAD",
-  targetLabourPct: 0.28,
-  menuItemCount: 2,
-  staffCount: 10,
-  wageBands: [],
-  kitchenTicketCapacityPerHour: 40,
-  owner: { name: "Owner", phone: "555", email: "owner@example.com" },
-};
-
-function salesDay(overrides: Partial<SalesDay> = {}): SalesDay {
-  const hourly = Array(HOUR_COUNT).fill(0);
-  hourly[5] = 800;
+function data(over: Partial<BriefData> = {}): BriefData {
   return {
-    locationId: "prairie-table",
-    date: "2026-01-05",
-    netSales: 2000,
-    tax: 0,
-    tips: 0,
-    covers: 100,
-    orders: 80,
-    hourly,
-    hourlyOrders: Array(HOUR_COUNT).fill(0),
-    channels: { dine_in: 1500, takeout: 300, delivery: 200, room_service: 0 },
-    lastYearNetSales: 1800,
-    ...overrides,
-  };
-}
-
-function labourDay(overrides: Partial<LabourDay> = {}): LabourDay {
-  return {
-    locationId: "prairie-table",
-    date: "2026-01-05",
-    scheduledHours: 40,
-    actualHours: 40,
-    labourCost: 560,
-    shifts: [],
-    ...overrides,
+    company: COMPANY,
+    date: "2026-01-10",
+    jobs: [JOB],
+    codes: [code()],
+    costDays: [
+      day({ date: "2026-01-02", qty: 30, cost: 25_000, hours: 100, overtimeHours: 5 }),
+      day({ date: "2026-01-09", qty: 30, cost: 45_000, hours: 100, overtimeHours: 30 }),
+    ],
+    tickets: [],
+    invoices: [],
+    changeOrders: [],
+    alerts: [],
+    ...over,
   };
 }
 
 describe("buildBriefInput", () => {
-  it("returns null when there is no sales day for the given date", () => {
-    expect(buildBriefInput(LOCATION, "2026-01-05", [], [])).toBeNull();
+  it("returns null when the company has no jobs", () => {
+    expect(buildBriefInput(data({ jobs: [] }))).toBeNull();
   });
 
-  it("computes derived fields for a day with sales and labour data", () => {
-    const day = salesDay({ date: "2026-01-05", netSales: 2000, covers: 100, lastYearNetSales: 1800 });
-    const labour = labourDay({ date: "2026-01-05", labourCost: 560 });
-    const input = buildBriefInput(LOCATION, "2026-01-05", [day], [labour]);
-
-    expect(input).not.toBeNull();
-    expect(input!.netSales).toBe(2000);
-    expect(input!.avgCheck).toBe(20); // 2000 / 100 covers
-    expect(input!.labourPct).toBeCloseTo(0.28); // 560 / 2000
-    expect(input!.targetLabourPct).toBe(0.28);
-    expect(input!.yoyDelta).toBeCloseTo((2000 - 1800) / 1800);
-    expect(input!.deliveryShare).toBeCloseTo(200 / 2000); // delivery channel only, no room_service
-    expect(input!.peakHourIndex).toBe(5);
-    expect(input!.peakHourSales).toBe(800);
+  it("computes the portfolio forecast margin and its change versus a week earlier", () => {
+    const b = buildBriefInput(data())!;
+    expect(b.weekdayName).toBe("Saturday");
+    expect(b.marginAtCompletion).toBeLessThan(b.marginPrev ?? 0);
+    expect(b.marginDelta).toBeCloseTo(b.marginAtCompletion - (b.marginPrev ?? 0));
   });
 
-  it("handles a day with no labour data — labourPct and its delta are null", () => {
-    const day = salesDay({ date: "2026-01-05" });
-    const input = buildBriefInput(LOCATION, "2026-01-05", [day], []);
-    expect(input!.labourPct).toBeNull();
-    expect(input!.labourPctDelta).toBeNull();
+  it("has no week-over-week comparison when nothing had been spent a week ago", () => {
+    const b = buildBriefInput(data({ costDays: [day({ date: "2026-01-09", qty: 30, cost: 45_000 })] }))!;
+    expect(b.marginPrev).toBeNull();
+    expect(b.marginDelta).toBeNull();
   });
 
-  it("has no baseline deltas with no prior-week history", () => {
-    const day = salesDay({ date: "2026-01-05" });
-    const input = buildBriefInput(LOCATION, "2026-01-05", [day], []);
-    expect(input!.netSalesBaseline).toBeNull();
-    expect(input!.netSalesDelta).toBeNull();
+  it("picks the job with the lowest forecast margin as the worst", () => {
+    const j2 = { ...JOB, id: "job-2", name: "Second", contractValue: 400_000 };
+    const c2 = code({ id: "c2", jobId: "job-2" });
+    const b = buildBriefInput(data({ jobs: [JOB, j2], codes: [code(), c2], costDays: [day({ qty: 50, cost: 40_000 }), day({ jobId: "job-2", codeId: "c2", qty: 50, cost: 90_000 })] }))!;
+    expect(b.worstJob?.jobId).toBe("job-2");
   });
 
-  it("avgCheck is zero with zero covers", () => {
-    const day = salesDay({ date: "2026-01-05", covers: 0 });
-    const input = buildBriefInput(LOCATION, "2026-01-05", [day], []);
-    expect(input!.avgCheck).toBe(0);
+  it("rolls up unbilled work, change-order exposure and overtime", () => {
+    const extra = code({ id: "x", budget: 0, plannedQty: 0, extra: true });
+    const costDays = [
+      day({ date: "2026-01-09", qty: 30, cost: 45_000, hours: 100, overtimeHours: 30 }),
+      day({ date: "2026-01-20", cost: 12_000, hours: 40, codeId: "x" }),
+      day({ date: "2026-01-22", cost: 9_000, hours: 100, overtimeHours: 30 }),
+    ];
+    const b = buildBriefInput(data({ date: "2026-01-24", codes: [code(), extra], costDays }))!;
+    expect(b.unbilledWork).toBeGreaterThan(0);
+    expect(b.missingChangeOrderCost).toBe(12_000);
+    expect(b.overtimePct).toBeCloseTo(30 / 140); // the extra-work hours count in the denominator
+  });
+
+  it("counts alerts by severity", () => {
+    const alert = (severity: "critical" | "warning" | "info") => ({ severity }) as never;
+    const b = buildBriefInput(data({ alerts: [alert("critical"), alert("warning"), alert("warning"), alert("info")] }))!;
+    expect(b.criticalAlerts).toBe(1);
+    expect(b.warningAlerts).toBe(2);
   });
 });

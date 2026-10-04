@@ -1,7 +1,8 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AgentMode, Approval, ApprovalStatus, Integration, Location, Settings } from "@evolv/contracts/types";
-import { apiClient } from "@/lib/api-client";
+import type { AgentMode, Alert, Approval, ApprovalStatus, Company, Integration, Job, Settings } from "@evolv/contracts/types";
+import { detectAlerts } from "@evolv/contracts/alerts";
+import { apiClient, loadSnapshot, type Snapshot } from "@/lib/api-client";
 
 interface AppState {
   ready: boolean;
@@ -12,14 +13,23 @@ interface AppState {
 
   resolvingApprovalId: string | null;
 
-  locations: Location[];
-  location: Location | undefined;
-  locationId: string;
-  setLocationId: (id: string) => void;
-  outletId: string | undefined;
-  setOutletId: (id: string | undefined) => void;
+  companies: Company[];
+  company: Company | undefined;
+  companyId: string;
+  setCompanyId: (id: string) => void;
+  /** Optional job filter: undefined means every job. */
+  jobId: string | undefined;
+  setJobId: (id: string | undefined) => void;
   /** Most recent closed business day ("yesterday"). */
   asOf: string;
+
+  /** The canonical model for the selected company; undefined while it loads. */
+  snapshot: Snapshot | undefined;
+  snapshotLoading: boolean;
+  refreshSnapshot: () => void;
+  /** Signals computed at request time over the snapshot, whole company. */
+  alerts: Alert[] | undefined;
+  jobs: Job[];
 
   settings: Settings;
   updateSettings: (patch: Partial<Settings>) => void;
@@ -40,37 +50,38 @@ interface AppState {
 
 const Ctx = createContext<AppState | null>(null);
 
-const DEFAULT_LOCATION = "prairie-table";
+const DEFAULT_COMPANY = "foothills-pipeline";
 
-function defaultSettings(loc: Location | undefined): Settings {
+function defaultSettings(company: Company | undefined): Settings {
   return {
     deliveryChannel: "whatsapp",
-    sendTime: "06:00",
-    recipients: loc ? [loc.owner.phone, loc.owner.email] : [],
-    targetLabourPct: loc?.targetLabourPct ?? 0.28,
+    sendTime: "05:45",
+    recipients: company ? [company.owner.phone, company.owner.email] : [],
+    targetMarginPct: company?.targetMarginPct ?? 0.12,
   };
 }
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [signedIn, setSignedIn] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [locations, setLocations] = useState<Location[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
   const [asOf, setAsOf] = useState("");
   const [ready, setReady] = useState(false);
-  const [locationId, setLocationIdState] = useState(DEFAULT_LOCATION);
-  const [outletId, setOutletId] = useState<string | undefined>(undefined);
+  const [companyId, setCompanyIdState] = useState(DEFAULT_COMPANY);
+  const [jobId, setJobId] = useState<string | undefined>(undefined);
 
-  const [settingsByLoc, setSettingsByLoc] = useState<Record<string, Settings>>({});
-  const [approvalsByLoc, setApprovalsByLoc] = useState<Record<string, Approval[]>>({});
-  const [integrationsByLoc, setIntegrationsByLoc] = useState<Record<string, Integration[]>>({});
+  const [snapshotsByCo, setSnapshotsByCo] = useState<Record<string, Snapshot>>({});
+  const [settingsByCo, setSettingsByCo] = useState<Record<string, Settings>>({});
+  const [approvalsByCo, setApprovalsByCo] = useState<Record<string, Approval[]>>({});
+  const [integrationsByCo, setIntegrationsByCo] = useState<Record<string, Integration[]>>({});
   const [agentModes, setAgentModes] = useState<Record<string, AgentMode>>({});
   const inflight = useRef(new Set<string>());
 
   useEffect(() => {
     let alive = true;
-    Promise.all([apiClient.sales.listLocations(), apiClient.sales.latestDate(DEFAULT_LOCATION), apiClient.agents.listAgents()]).then(([locs, date, agents]) => {
+    Promise.all([apiClient.projects.listCompanies(), apiClient.projects.latestDate(DEFAULT_COMPANY), apiClient.agents.listAgents()]).then(([cos, date, agents]) => {
       if (!alive) return;
-      setLocations(locs);
+      setCompanies(cos);
       setAsOf(date);
       setAgentModes(Object.fromEntries(agents.map((a) => [a.id, a.defaultMode])));
       setReady(true);
@@ -80,80 +91,104 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const location = locations.find((l) => l.id === locationId);
+  const company = companies.find((c) => c.id === companyId);
 
-  // Lazily load per-location state the first time a tenant is selected.
+  // Lazily load per-company state the first time a tenant is selected.
   useEffect(() => {
-    const key = `a:${locationId}`;
-    if (!locationId || approvalsByLoc[locationId] || inflight.current.has(key)) return;
+    const key = `a:${companyId}`;
+    if (!companyId || approvalsByCo[companyId] || inflight.current.has(key)) return;
     inflight.current.add(key);
-    apiClient.approvals.listApprovals(locationId).then((rows) => {
+    apiClient.approvals.listApprovals(companyId).then((rows) => {
       inflight.current.delete(key);
-      setApprovalsByLoc((m) => (m[locationId] ? m : { ...m, [locationId]: rows }));
+      setApprovalsByCo((m) => (m[companyId] ? m : { ...m, [companyId]: rows }));
     });
-  }, [locationId, approvalsByLoc]);
+  }, [companyId, approvalsByCo]);
 
   useEffect(() => {
-    const key = `i:${locationId}`;
-    if (!locationId || integrationsByLoc[locationId] || inflight.current.has(key)) return;
+    const key = `i:${companyId}`;
+    if (!companyId || integrationsByCo[companyId] || inflight.current.has(key)) return;
     inflight.current.add(key);
-    apiClient.integrations.listIntegrations(locationId).then((rows) => {
+    apiClient.integrations.listIntegrations(companyId).then((rows) => {
       inflight.current.delete(key);
-      setIntegrationsByLoc((m) => (m[locationId] ? m : { ...m, [locationId]: rows }));
+      setIntegrationsByCo((m) => (m[companyId] ? m : { ...m, [companyId]: rows }));
     });
-  }, [locationId, integrationsByLoc]);
+  }, [companyId, integrationsByCo]);
 
-  const setLocationId = useCallback((id: string) => {
-    setLocationIdState(id);
-    setOutletId(undefined);
+  useEffect(() => {
+    const key = `s:${companyId}`;
+    if (!ready || !asOf || snapshotsByCo[companyId] || inflight.current.has(key)) return;
+    inflight.current.add(key);
+    loadSnapshot(companyId, asOf).then((snap) => {
+      inflight.current.delete(key);
+      setSnapshotsByCo((m) => (m[companyId] ? m : { ...m, [companyId]: snap }));
+    });
+  }, [ready, asOf, companyId, snapshotsByCo]);
+
+  const refreshSnapshot = useCallback(() => {
+    if (!asOf) return;
+    const id = companyId;
+    loadSnapshot(id, asOf).then((snap) => setSnapshotsByCo((m) => ({ ...m, [id]: snap })));
+  }, [asOf, companyId]);
+
+  const setCompanyId = useCallback((id: string) => {
+    setCompanyIdState(id);
+    setJobId(undefined);
   }, []);
 
-  const settings = settingsByLoc[locationId] ?? defaultSettings(location);
-  const updateSettings = useCallback(
-    (patch: Partial<Settings>) => {
-      setSettingsByLoc((m) => ({ ...m, [locationId]: { ...(m[locationId] ?? defaultSettings(location)), ...patch } }));
-    },
-    [locationId, location],
+  const snapshot = snapshotsByCo[companyId];
+  const alerts = useMemo(
+    () => (company && snapshot ? detectAlerts({ company, date: asOf, ...snapshot }) : undefined),
+    [company, snapshot, asOf],
   );
 
-  const approvals = useMemo(() => approvalsByLoc[locationId] ?? [], [approvalsByLoc, locationId]);
+  const settings = settingsByCo[companyId] ?? defaultSettings(company);
+  const updateSettings = useCallback(
+    (patch: Partial<Settings>) => {
+      setSettingsByCo((m) => ({ ...m, [companyId]: { ...(m[companyId] ?? defaultSettings(company)), ...patch } }));
+    },
+    [companyId, company],
+  );
+
+  const approvals = useMemo(() => approvalsByCo[companyId] ?? [], [approvalsByCo, companyId]);
   const [resolvingApprovalId, setResolvingApprovalId] = useState<string | null>(null);
   const resolveApproval = useCallback(
     async (id: string, status: Exclude<ApprovalStatus, "pending">, editedAction?: string) => {
-      const loc = locationId;
-      const previous = approvalsByLoc[loc];
+      const co = companyId;
+      const previous = approvalsByCo[co];
       // Optimistic flip so the UI feels instant; reconciled with the server response below.
-      setApprovalsByLoc((m) => ({
+      setApprovalsByCo((m) => ({
         ...m,
-        [loc]: (m[loc] ?? []).map((a) => (a.id === id ? { ...a, status, resolvedAt: new Date().toISOString(), action: editedAction ?? a.action } : a)),
+        [co]: (m[co] ?? []).map((a) => (a.id === id ? { ...a, status, resolvedAt: new Date().toISOString(), action: editedAction ?? a.action } : a)),
       }));
       setResolvingApprovalId(id);
       try {
         const resolved = await apiClient.approvals.resolve({ approvalId: id, status, editedAction });
-        setApprovalsByLoc((m) => ({ ...m, [loc]: (m[loc] ?? []).map((a) => (a.id === id ? resolved : a)) }));
+        setApprovalsByCo((m) => ({ ...m, [co]: (m[co] ?? []).map((a) => (a.id === id ? resolved : a)) }));
+        // An approved change-order draft writes a real change order: reload so the signal clears.
+        if (status === "approved") refreshSnapshot();
       } catch (err) {
-        // Revert on failure — the optimistic flip didn't actually happen server-side.
-        setApprovalsByLoc((m) => ({ ...m, [loc]: previous ?? m[loc] }));
+        // Revert on failure: the optimistic flip didn't actually happen server-side.
+        setApprovalsByCo((m) => ({ ...m, [co]: previous ?? m[co] }));
         throw err;
       } finally {
         setResolvingApprovalId((current) => (current === id ? null : current));
       }
     },
-    [locationId, approvalsByLoc],
+    [companyId, approvalsByCo, refreshSnapshot],
   );
   const addApproval = useCallback((a: Approval) => {
-    setApprovalsByLoc((m) => ({ ...m, [a.locationId]: [a, ...(m[a.locationId] ?? []).filter((x) => x.id !== a.id)] }));
+    setApprovalsByCo((m) => ({ ...m, [a.companyId]: [a, ...(m[a.companyId] ?? []).filter((x) => x.id !== a.id)] }));
   }, []);
 
-  const integrations = useMemo(() => integrationsByLoc[locationId] ?? [], [integrationsByLoc, locationId]);
+  const integrations = useMemo(() => integrationsByCo[companyId] ?? [], [integrationsByCo, companyId]);
   const connectIntegration = useCallback(
     (id: string) => {
-      setIntegrationsByLoc((m) => ({
+      setIntegrationsByCo((m) => ({
         ...m,
-        [locationId]: (m[locationId] ?? []).map((i) => (i.id === id ? { ...i, state: "connected", lastSyncAt: new Date().toISOString() } : i)),
+        [companyId]: (m[companyId] ?? []).map((i) => (i.id === id ? { ...i, state: "connected", lastSyncAt: new Date().toISOString() } : i)),
       }));
     },
-    [locationId],
+    [companyId],
   );
 
   const setAgentMode = useCallback((agentId: string, mode: AgentMode) => setAgentModes((m) => ({ ...m, [agentId]: mode })), []);
@@ -171,22 +206,27 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setUserEmail(null);
     },
     resolvingApprovalId,
-    locations,
-    location,
-    locationId,
-    setLocationId,
-    outletId,
-    setOutletId,
+    companies,
+    company,
+    companyId,
+    setCompanyId,
+    jobId,
+    setJobId,
     asOf,
+    snapshot,
+    snapshotLoading: !snapshot,
+    refreshSnapshot,
+    alerts,
+    jobs: snapshot?.jobs ?? [],
     settings,
     updateSettings,
     approvals,
-    approvalsLoading: !approvalsByLoc[locationId],
+    approvalsLoading: !approvalsByCo[companyId],
     pendingCount: approvals.filter((a) => a.status === "pending").length,
     resolveApproval,
     addApproval,
     integrations,
-    integrationsLoading: !integrationsByLoc[locationId],
+    integrationsLoading: !integrationsByCo[companyId],
     connectIntegration,
     agentModes,
     setAgentMode,

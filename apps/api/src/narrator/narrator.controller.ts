@@ -3,7 +3,7 @@ import type { Narrator } from "@evolv/contracts/ports";
 import { NARRATOR } from "./narrator.token";
 
 interface AskBody {
-  locationId: string;
+  companyId: string;
   date: string;
   question: string;
 }
@@ -13,22 +13,22 @@ export class NarratorController {
   constructor(@Inject(NARRATOR) private readonly narrator: Narrator) {}
 
   @Get("brief")
-  getBrief(@Query("locationId") locationId: string, @Query("date") date: string) {
-    return this.narrator.getBrief(locationId, date);
+  getBrief(@Query("companyId") companyId: string, @Query("date") date: string) {
+    return this.narrator.getBrief(companyId, date);
   }
 
   @Get("briefs")
-  listBriefs(@Query("locationId") locationId: string) {
-    return this.narrator.listBriefs(locationId);
+  listBriefs(@Query("companyId") companyId: string) {
+    return this.narrator.listBriefs(companyId);
   }
 
   @Get("suggested-questions")
-  suggestedQuestions(@Query("locationId") locationId: string) {
-    return this.narrator.suggestedQuestions(locationId);
+  suggestedQuestions(@Query("companyId") companyId: string) {
+    return this.narrator.suggestedQuestions(companyId);
   }
 
   @Post("ask")
   ask(@Body() body: AskBody) {
-    return this.narrator.ask(body.locationId, body.date, body.question);
+    return this.narrator.ask(body.companyId, body.date, body.question);
   }
 }

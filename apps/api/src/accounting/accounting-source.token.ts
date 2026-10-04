@@ -1,1 +1,0 @@
-export const ACCOUNTING_SOURCE = Symbol("ACCOUNTING_SOURCE");

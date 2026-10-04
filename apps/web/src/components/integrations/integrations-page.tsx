@@ -13,23 +13,25 @@ import { ConnectDialog } from "./connect-dialog";
 import { cn } from "@/lib/utils";
 
 const AREAS: { id: IntegrationArea; label: string; blurb: string }[] = [
-  { id: "pos", label: "Point of sale", blurb: "Where sales, items and hours come from." },
-  { id: "scheduling", label: "Scheduling", blurb: "Scheduled vs actual hours and wage bands." },
-  { id: "inventory", label: "Inventory", blurb: "Counts, par levels and supplier orders." },
-  { id: "accounting", label: "Accounting", blurb: "P&L and cash for Finance Insights." },
-  { id: "delivery", label: "Delivery", blurb: "Order volume and commissions by platform." },
-  { id: "reservations", label: "Reservations", blurb: "Covers booked, no-shows and guest notes." },
-  { id: "messaging", label: "Messaging", blurb: "Where the morning brief and alerts go." },
+  { id: "accounting", label: "Accounting", blurb: "Job cost, commitments, receivables and payroll." },
+  { id: "estimating", label: "Estimating and spreadsheets", blurb: "Budget at completion per cost code. A spreadsheet drop is a first-class source." },
+  { id: "timekeeping", label: "Timekeeping", blurb: "Crew hours by worker, cost code and day." },
+  { id: "field", label: "Field progress and schedule", blurb: "Quantities installed, daily reports and the look-ahead." },
+  { id: "ticketing", label: "Field ticketing", blurb: "Electronic field tickets with client signatures." },
+  { id: "billing", label: "Client billing network", blurb: "Invoice status and dispute reasons from the operator's side." },
+  { id: "equipment", label: "Equipment and telematics", blurb: "Utilization, idle time and maintenance." },
+  { id: "safety", label: "Safety", blurb: "Incidents, inspections and corrective actions." },
+  { id: "messaging", label: "Messaging", blurb: "Where the daily brief and urgent alerts go." },
 ];
 
 export function IntegrationsPage() {
-  const { integrations, integrationsLoading, location, connectIntegration } = useAppState();
+  const { integrations, integrationsLoading, company, connectIntegration } = useAppState();
   const [connecting, setConnecting] = useState<Integration | null>(null);
   const connected = integrations.filter((i) => i.state === "connected").length;
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="Integrations" description={`${connected} connected at ${location?.name}. Connecting takes about a minute and never needs a developer.`} />
+      <PageHeader title="Integrations" description={`${connected} connected at ${company?.name}. Evolv starts read-only: it reads exports, files or APIs and never changes your accounting setup.`} />
       {integrationsLoading ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-28" />)}</div>
       ) : (

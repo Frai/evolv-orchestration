@@ -1,27 +1,31 @@
 /**
- * Typed HTTP client for the Evolv API (apps/api). Shaped identically to the old
- * in-process `adapters` object (same 9 namespaces, same method names) so every
- * component only needed its import swapped, not its call shape.
+ * Typed HTTP client for the Evolv API (apps/api). One namespace per port, same method names
+ * as the port interfaces in @evolv/contracts, so swapping the transport never touches a component.
  */
 import type {
   Agent,
   AgentRun,
   Approval,
   Brief,
+  ChangeOrder,
+  Commitment,
+  Company,
+  CostCode,
+  CostDay,
   DateRange,
   DeliveryChannel,
   DeliveryReceipt,
+  Equipment,
+  FieldTicket,
   Integration,
-  ItemSales,
-  LabourDay,
-  Location,
-  MenuItem,
+  Invoice,
+  Job,
   OrchestratorSummary,
   QAPair,
-  SalesDay,
-  StockLevel,
+  SafetyEvent,
 } from "@evolv/contracts/types";
-import type { CostSummary, ResolveApprovalInput } from "@evolv/contracts/ports";
+import type { ResolveApprovalInput } from "@evolv/contracts/ports";
+import { rangeEndingAt } from "@evolv/contracts/dates";
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
 
@@ -50,58 +54,87 @@ function qs(params: Record<string, string | undefined>): string {
   return search.toString();
 }
 
-interface SalesQuery {
-  locationId: string;
-  outletId?: string;
-  range: DateRange;
-}
-
-interface LabourQuery {
-  locationId: string;
-  outletId?: string;
+interface CostDayQuery {
+  companyId: string;
+  jobId?: string;
   range: DateRange;
 }
 
 export const apiClient = {
-  sales: {
-    listLocations: () => get<Location[]>("/sales/locations"),
-    getLocation: (id: string) => get<Location | undefined>(`/sales/locations/${id}`),
-    latestDate: (locationId: string) => get<string>(`/sales/locations/${locationId}/latest-date`),
-    getSalesDays: (q: SalesQuery) => get<SalesDay[]>(`/sales/days?${qs({ locationId: q.locationId, outletId: q.outletId, from: q.range.from, to: q.range.to })}`),
-    getMenu: (locationId: string, outletId?: string) => get<MenuItem[]>(`/sales/menu?${qs({ locationId, outletId })}`),
-    getItemSales: (q: SalesQuery) => get<ItemSales[]>(`/sales/item-sales?${qs({ locationId: q.locationId, outletId: q.outletId, from: q.range.from, to: q.range.to })}`),
+  projects: {
+    listCompanies: () => get<Company[]>("/projects/companies"),
+    getCompany: (id: string) => get<Company | undefined>(`/projects/companies/${id}`),
+    latestDate: (companyId: string) => get<string>(`/projects/companies/${companyId}/latest-date`),
+    listJobs: (companyId: string) => get<Job[]>(`/projects/jobs?${qs({ companyId })}`),
+    getCostCodes: (companyId: string, jobId?: string) => get<CostCode[]>(`/projects/cost-codes?${qs({ companyId, jobId })}`),
+    getCostDays: (q: CostDayQuery) => get<CostDay[]>(`/projects/cost-days?${qs({ companyId: q.companyId, jobId: q.jobId, from: q.range.from, to: q.range.to })}`),
   },
-  labour: {
-    getLabourDays: (q: LabourQuery) => get<LabourDay[]>(`/labour/days?${qs({ locationId: q.locationId, outletId: q.outletId, from: q.range.from, to: q.range.to })}`),
+  billing: {
+    getFieldTickets: (companyId: string, jobId?: string) => get<FieldTicket[]>(`/billing/tickets?${qs({ companyId, jobId })}`),
+    getInvoices: (companyId: string, jobId?: string) => get<Invoice[]>(`/billing/invoices?${qs({ companyId, jobId })}`),
+    getChangeOrders: (companyId: string, jobId?: string) => get<ChangeOrder[]>(`/billing/change-orders?${qs({ companyId, jobId })}`),
   },
-  inventory: {
-    getStockLevels: (locationId: string) => get<StockLevel[]>(`/inventory/stock?${qs({ locationId })}`),
+  resources: {
+    getEquipment: (companyId: string, jobId?: string) => get<Equipment[]>(`/resources/equipment?${qs({ companyId, jobId })}`),
+    getCommitments: (companyId: string, jobId?: string) => get<Commitment[]>(`/resources/commitments?${qs({ companyId, jobId })}`),
   },
-  accounting: {
-    getCostSummary: (locationId: string, range: DateRange) => get<CostSummary>(`/accounting/cost-summary?${qs({ locationId, from: range.from, to: range.to })}`),
+  safety: {
+    getSafetyEvents: (companyId: string, jobId?: string) => get<SafetyEvent[]>(`/safety/events?${qs({ companyId, jobId })}`),
   },
   narrator: {
-    getBrief: (locationId: string, date: string) => get<Brief | undefined>(`/narrator/brief?${qs({ locationId, date })}`),
-    listBriefs: (locationId: string) => get<Brief[]>(`/narrator/briefs?${qs({ locationId })}`),
-    suggestedQuestions: (locationId: string) => get<string[]>(`/narrator/suggested-questions?${qs({ locationId })}`),
-    ask: (locationId: string, date: string, question: string) => post<QAPair>("/narrator/ask", { locationId, date, question }),
+    getBrief: (companyId: string, date: string) => get<Brief | undefined>(`/narrator/brief?${qs({ companyId, date })}`),
+    listBriefs: (companyId: string) => get<Brief[]>(`/narrator/briefs?${qs({ companyId })}`),
+    suggestedQuestions: (companyId: string) => get<string[]>(`/narrator/suggested-questions?${qs({ companyId })}`),
+    ask: (companyId: string, date: string, question: string) => post<QAPair>("/narrator/ask", { companyId, date, question }),
   },
   notifier: {
     send: (channel: DeliveryChannel, to: string[], subject: string, body: string) => post<DeliveryReceipt>("/notifier/send", { channel, to, subject, body }),
-    lastDelivery: (locationId: string) => get<DeliveryReceipt | undefined>(`/notifier/last-delivery?${qs({ locationId })}`),
+    lastDelivery: (companyId: string) => get<DeliveryReceipt | undefined>(`/notifier/last-delivery?${qs({ companyId })}`),
   },
   agents: {
     listAgents: () => get<Agent[]>("/agents"),
-    listRuns: (locationId: string, agentId?: string) => get<AgentRun[]>(`/agents/runs?${qs({ locationId, agentId })}`),
+    listRuns: (companyId: string, agentId?: string) => get<AgentRun[]>(`/agents/runs?${qs({ companyId, agentId })}`),
     getRun: (runId: string) => get<AgentRun | undefined>(`/agents/runs/${runId}`),
-    lastCycle: (locationId: string) => get<OrchestratorSummary>(`/agents/last-cycle?${qs({ locationId })}`),
-    runNow: (locationId: string, agentId: string) => post<AgentRun>("/agents/run-now", { locationId, agentId }),
+    lastCycle: (companyId: string) => get<OrchestratorSummary>(`/agents/last-cycle?${qs({ companyId })}`),
+    runNow: (companyId: string, agentId: string) => post<AgentRun>("/agents/run-now", { companyId, agentId }),
   },
   approvals: {
-    listApprovals: (locationId: string) => get<Approval[]>(`/approvals?${qs({ locationId })}`),
+    listApprovals: (companyId: string) => get<Approval[]>(`/approvals?${qs({ companyId })}`),
     resolve: (input: ResolveApprovalInput) => post<Approval>(`/approvals/${input.approvalId}/resolve`, { status: input.status, editedAction: input.editedAction }),
   },
   integrations: {
-    listIntegrations: (locationId: string) => get<Integration[]>(`/integrations?${qs({ locationId })}`),
+    listIntegrations: (companyId: string) => get<Integration[]>(`/integrations?${qs({ companyId })}`),
   },
 };
+
+/** Everything the dashboards compute over for one company: the canonical model, as of one date. */
+export interface Snapshot {
+  companyId: string;
+  asOf: string;
+  jobs: Job[];
+  codes: CostCode[];
+  costDays: CostDay[];
+  tickets: FieldTicket[];
+  invoices: Invoice[];
+  changeOrders: ChangeOrder[];
+  equipment: Equipment[];
+  commitments: Commitment[];
+  safety: SafetyEvent[];
+}
+
+/** Loads the full snapshot for a company: 90 days of job cost plus the live ticket, billing, fleet and safety state. */
+export async function loadSnapshot(companyId: string, asOf: string): Promise<Snapshot> {
+  const range = rangeEndingAt(asOf, 90);
+  const [jobs, codes, costDays, tickets, invoices, changeOrders, equipment, commitments, safety] = await Promise.all([
+    apiClient.projects.listJobs(companyId),
+    apiClient.projects.getCostCodes(companyId),
+    apiClient.projects.getCostDays({ companyId, range }),
+    apiClient.billing.getFieldTickets(companyId),
+    apiClient.billing.getInvoices(companyId),
+    apiClient.billing.getChangeOrders(companyId),
+    apiClient.resources.getEquipment(companyId),
+    apiClient.resources.getCommitments(companyId),
+    apiClient.safety.getSafetyEvents(companyId),
+  ]);
+  return { companyId, asOf, jobs, codes, costDays, tickets, invoices, changeOrders, equipment, commitments, safety };
+}

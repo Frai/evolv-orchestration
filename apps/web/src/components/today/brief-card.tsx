@@ -16,8 +16,7 @@ export function BriefCard({
   numbersLoading,
   pendingApprovals,
   approvalsLoading,
-  targetLabourPct,
-  roomService,
+  targetMarginPct,
 }: {
   brief: Brief | undefined;
   loading: boolean;
@@ -25,14 +24,13 @@ export function BriefCard({
   numbersLoading: boolean;
   pendingApprovals: Approval[];
   approvalsLoading: boolean;
-  targetLabourPct: number;
-  roomService: boolean;
+  targetMarginPct: number;
 }) {
   return (
     <Card className="gap-3">
       <CardHeader className="flex flex-row items-start justify-between gap-3">
         <div>
-          <div className="text-muted-foreground text-xs font-medium">Morning brief</div>
+          <div className="text-muted-foreground text-xs font-medium">Daily brief</div>
           {loading ? <Skeleton className="mt-1.5 h-5 w-64 max-w-full" /> : <CardTitle className="mt-1 text-lg leading-snug">{brief?.headline ?? "No brief for this day"}</CardTitle>}
         </div>
         {brief ? (
@@ -43,7 +41,7 @@ export function BriefCard({
       </CardHeader>
       <CardContent>
         {!loading && !brief ? (
-          <EmptyState title="Nothing written yet" description="The brief is written at 5:45 AM once the day has closed in the POS." />
+          <EmptyState title="Nothing written yet" description="The brief is written at 5:45 AM once last night's job cost has landed." />
         ) : (
           <Tabs defaultValue="quick">
             <TabsList>
@@ -51,7 +49,7 @@ export function BriefCard({
               <TabsTrigger value="glance">At a glance</TabsTrigger>
             </TabsList>
             <TabsContent value="quick" className="pt-3">
-              <QuickBrief input={input} loading={numbersLoading} pendingApprovals={pendingApprovals} approvalsLoading={approvalsLoading} targetLabourPct={targetLabourPct} roomService={roomService} />
+              <QuickBrief input={input} loading={numbersLoading} pendingApprovals={pendingApprovals} approvalsLoading={approvalsLoading} targetMarginPct={targetMarginPct} />
             </TabsContent>
             <TabsContent value="glance" className="pt-3">
               {loading ? (

@@ -3,10 +3,9 @@ import type { Pool } from "pg";
 import type { Narrator } from "@evolv/contracts/ports";
 import type { Brief, QAPair } from "@evolv/contracts/types";
 import { PG_POOL } from "../../db/pg-pool.provider";
-import { getLocationById } from "../../locations/location-rows";
 
 interface BriefRow {
-  location_id: string;
+  company_id: string;
   date: string;
   headline: string;
   paragraphs: string[];
@@ -14,7 +13,7 @@ interface BriefRow {
   channel: Brief["channel"];
 }
 const mapBrief = (r: BriefRow): Brief => ({
-  locationId: r.location_id,
+  companyId: r.company_id,
   date: r.date,
   headline: r.headline,
   paragraphs: r.paragraphs,
@@ -26,33 +25,33 @@ const mapBrief = (r: BriefRow): Brief => ({
 export class PgNarrator implements Narrator {
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
-  async getBrief(locationId: string, date: string): Promise<Brief | undefined> {
+  async getBrief(companyId: string, date: string): Promise<Brief | undefined> {
     const { rows } = await this.pool.query<BriefRow>(
-      `select location_id, to_char(date, 'YYYY-MM-DD') as date, headline, paragraphs, delivered_at, channel from briefs where location_id = $1 and date = $2`,
-      [locationId, date],
+      `select company_id, date, headline, paragraphs, delivered_at, channel from briefs where company_id = $1 and date = $2`,
+      [companyId, date],
     );
     return rows[0] ? mapBrief(rows[0]) : undefined;
   }
 
-  async listBriefs(locationId: string): Promise<Brief[]> {
+  async listBriefs(companyId: string): Promise<Brief[]> {
     const { rows } = await this.pool.query<BriefRow>(
-      `select location_id, to_char(date, 'YYYY-MM-DD') as date, headline, paragraphs, delivered_at, channel from briefs where location_id = $1 order by date desc`,
-      [locationId],
+      `select company_id, date, headline, paragraphs, delivered_at, channel from briefs where company_id = $1 order by date desc`,
+      [companyId],
     );
     return rows.map(mapBrief);
   }
 
-  async suggestedQuestions(locationId: string): Promise<string[]> {
-    const { rows } = await this.pool.query<{ question: string }>(`select question from qa_pairs where location_id = $1`, [locationId]);
+  async suggestedQuestions(companyId: string): Promise<string[]> {
+    const { rows } = await this.pool.query<{ question: string }>(`select question from qa_pairs where company_id = $1`, [companyId]);
     return rows.map((r) => r.question);
   }
 
-  async ask(locationId: string, date: string, question: string): Promise<QAPair> {
+  async ask(companyId: string, date: string, question: string): Promise<QAPair> {
     const { rows } = await this.pool.query<{ question: string; keywords: string[]; answer: string }>(
-      `select question, keywords, answer from qa_pairs where location_id = $1`,
-      [locationId],
+      `select question, keywords, answer from qa_pairs where company_id = $1`,
+      [companyId],
     );
-    const pairs: QAPair[] = rows.map((r) => ({ locationId, question: r.question, keywords: r.keywords, answer: r.answer }));
+    const pairs: QAPair[] = rows.map((r) => ({ companyId, question: r.question, keywords: r.keywords, answer: r.answer }));
 
     const words = question
       .toLowerCase()
@@ -73,13 +72,13 @@ export class PgNarrator implements Narrator {
     }
     if (best && best.score > 0) return best.pair;
 
-    const location = await getLocationById(this.pool, locationId);
-    const name = location?.name ?? "this location";
+    const { rows: companyRows } = await this.pool.query<{ name: string }>(`select name from companies where id = $1`, [companyId]);
+    const name = companyRows[0]?.name ?? "this company";
     return {
-      locationId,
+      companyId,
       question,
       keywords: [],
-      answer: `I can answer questions about ${name}'s sales, labour, stock and menu for ${date}. Try one of: ${pairs
+      answer: `I can answer questions about ${name}'s margin, cost codes, billing, labour and materials for ${date}. Try one of: ${pairs
         .slice(0, 3)
         .map((p) => `"${p.question}"`)
         .join(", ")}.`,

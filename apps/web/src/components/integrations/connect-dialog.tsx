@@ -10,13 +10,15 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
 const SCOPES: Record<string, string[]> = {
-  pos: ["Read sales, checks and items", "Read hourly breakdowns", "Read labour and timecards"],
-  scheduling: ["Read schedules and roles", "Read actual hours", "Propose schedule changes (with approval)"],
-  inventory: ["Read counts and par levels", "Draft purchase orders (with approval)"],
-  accounting: ["Read P&L and expenses", "Read bank balances"],
-  delivery: ["Read orders and commissions", "Read ratings"],
-  reservations: ["Read bookings and no-shows", "Read guest notes"],
-  messaging: ["Send the morning brief", "Send alerts"],
+  accounting: ["Read job cost by cost code", "Read commitments, receivables and payables", "No write access to your books"],
+  estimating: ["Read estimate lines and budget at completion", "Accept scheduled CSV or Excel drops"],
+  timekeeping: ["Read hours by worker, crew and cost code", "Read overtime"],
+  field: ["Read daily reports and quantities installed", "Read schedule activities and float"],
+  ticketing: ["Read field tickets and signature status", "Read crew, equipment and material lines"],
+  billing: ["Read invoice and dispute status", "Submit tickets only with your approval"],
+  equipment: ["Read engine hours and idle time", "Read maintenance schedules"],
+  safety: ["Read incidents, inspections and corrective actions", "Send reminders (routes only, never decides)"],
+  messaging: ["Send the daily brief", "Send urgent alerts"],
 };
 
 /** Mocked three-step OAuth: sign in with the vendor, grant scopes, initial sync. Ends connected. */
@@ -78,7 +80,7 @@ function ConnectFlow({ integration, onClose, onConnected }: { integration: Integ
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-2">
               <Label htmlFor="vendor-email">{integration.name} account email</Label>
-              <Input id="vendor-email" type="email" defaultValue={userEmail ?? ""} placeholder="you@restaurant.ca" />
+              <Input id="vendor-email" type="email" defaultValue={userEmail ?? ""} placeholder="you@contractor.ca" />
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="vendor-password">Password</Label>

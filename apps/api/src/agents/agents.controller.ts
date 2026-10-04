@@ -3,7 +3,7 @@ import type { AgentRunner } from "@evolv/contracts/ports";
 import { AGENT_RUNNER } from "./agent-runner.token";
 
 interface RunNowBody {
-  locationId: string;
+  companyId: string;
   agentId: string;
 }
 
@@ -17,8 +17,8 @@ export class AgentsController {
   }
 
   @Get("runs")
-  listRuns(@Query("locationId") locationId: string, @Query("agentId") agentId: string | undefined) {
-    return this.runner.listRuns(locationId, agentId);
+  listRuns(@Query("companyId") companyId: string, @Query("agentId") agentId: string | undefined) {
+    return this.runner.listRuns(companyId, agentId);
   }
 
   @Get("runs/:runId")
@@ -27,12 +27,12 @@ export class AgentsController {
   }
 
   @Get("last-cycle")
-  lastCycle(@Query("locationId") locationId: string) {
-    return this.runner.lastCycle(locationId);
+  lastCycle(@Query("companyId") companyId: string) {
+    return this.runner.lastCycle(companyId);
   }
 
   @Post("run-now")
   runNow(@Body() body: RunNowBody) {
-    return this.runner.runNow(body.locationId, body.agentId);
+    return this.runner.runNow(body.companyId, body.agentId);
   }
 }

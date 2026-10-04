@@ -34,22 +34,22 @@ export function AgentsPage() {
 }
 
 function AgentsPageInner() {
-  const { locationId, location, agentModes } = useAppState();
+  const { companyId, company, agentModes } = useAppState();
   const params = useSearchParams();
   const router = useRouter();
   const deepRun = params.get("run");
 
   const agents = useAsync(() => apiClient.agents.listAgents(), []);
-  const runs = useAsync(() => apiClient.agents.listRuns(locationId), [locationId]);
-  const cycle = useAsync(() => apiClient.agents.lastCycle(locationId), [locationId]);
+  const runs = useAsync(() => apiClient.agents.listRuns(companyId), [companyId]);
+  const cycle = useAsync(() => apiClient.agents.lastCycle(companyId), [companyId]);
 
   // Selection is stored with the tenant it belongs to, so switching tenants resets it without an effect.
-  const [sel, setSel] = useState<{ loc: string; agentId: string | null; runId: string | null }>({ loc: locationId, agentId: null, runId: null });
+  const [sel, setSel] = useState<{ loc: string; agentId: string | null; runId: string | null }>({ loc: companyId, agentId: null, runId: null });
   const [dismissedDeep, setDismissedDeep] = useState<string | null>(null);
-  const cur = sel.loc === locationId ? sel : { loc: locationId, agentId: null, runId: null };
+  const cur = sel.loc === companyId ? sel : { loc: companyId, agentId: null, runId: null };
   const runId = cur.runId ?? (deepRun && deepRun !== dismissedDeep ? deepRun : null);
   const setRunId = (id: string | null) => setSel({ ...cur, runId: id });
-  const setAgentId = (id: string | null) => setSel({ loc: locationId, agentId: id, runId: null });
+  const setAgentId = (id: string | null) => setSel({ loc: companyId, agentId: id, runId: null });
 
   const lastRunByAgent = useMemo(() => {
     const m = new Map<string, AgentRun>();
@@ -72,9 +72,9 @@ function AgentsPageInner() {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Agents" description={`What ran overnight for ${location?.name}, step by step.`} />
+      <PageHeader title="Agents" description={`What ran overnight for ${company?.name}, step by step.`} />
 
-      <OrchestratorPanel summary={cycle.data} loading={cycle.loading} onSelectRun={(r) => setSel({ loc: locationId, agentId: r.agentId, runId: r.id })} />
+      <OrchestratorPanel summary={cycle.data} loading={cycle.loading} onSelectRun={(r) => setSel({ loc: companyId, agentId: r.agentId, runId: r.id })} />
 
       {selectedAgent ? (
         <Section

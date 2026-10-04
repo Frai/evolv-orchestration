@@ -7,7 +7,7 @@ import { PG_POOL } from "../../db/pg-pool.provider";
 interface RunRow {
   id: string;
   agent_id: string;
-  location_id: string;
+  company_id: string;
   started_at: string;
   finished_at: string;
   duration_ms: number;
@@ -19,7 +19,7 @@ interface RunRow {
 const mapRun = (r: RunRow): AgentRun => ({
   id: r.id,
   agentId: r.agent_id,
-  locationId: r.location_id,
+  companyId: r.company_id,
   startedAt: r.started_at,
   finishedAt: r.finished_at,
   durationMs: r.duration_ms,
@@ -40,28 +40,28 @@ export class PgAgentRunner implements AgentRunner {
     return rows.map((r) => ({ id: r.id, name: r.name, description: r.description, status: r.status, schedule: r.schedule, defaultMode: r.default_mode }));
   }
 
-  async listRuns(locationId: string, agentId?: string): Promise<AgentRun[]> {
+  async listRuns(companyId: string, agentId?: string): Promise<AgentRun[]> {
     const { rows } = await this.pool.query<RunRow>(
-      `select id, agent_id, location_id, started_at, finished_at, duration_ms, status, goal, steps, outcome
-       from agent_runs where location_id = $1 and ($2::text is null or agent_id = $2)`,
-      [locationId, agentId ?? null],
+      `select id, agent_id, company_id, started_at, finished_at, duration_ms, status, goal, steps, outcome
+       from agent_runs where company_id = $1 and ($2::text is null or agent_id = $2)`,
+      [companyId, agentId ?? null],
     );
     return rows.map(mapRun);
   }
 
   async getRun(runId: string): Promise<AgentRun | undefined> {
     const { rows } = await this.pool.query<RunRow>(
-      `select id, agent_id, location_id, started_at, finished_at, duration_ms, status, goal, steps, outcome from agent_runs where id = $1`,
+      `select id, agent_id, company_id, started_at, finished_at, duration_ms, status, goal, steps, outcome from agent_runs where id = $1`,
       [runId],
     );
     return rows[0] ? mapRun(rows[0]) : undefined;
   }
 
-  async lastCycle(locationId: string): Promise<OrchestratorSummary> {
+  async lastCycle(companyId: string): Promise<OrchestratorSummary> {
     const { rows } = await this.pool.query<RunRow>(
-      `select id, agent_id, location_id, started_at, finished_at, duration_ms, status, goal, steps, outcome
-       from agent_runs where location_id = $1`,
-      [locationId],
+      `select id, agent_id, company_id, started_at, finished_at, duration_ms, status, goal, steps, outcome
+       from agent_runs where company_id = $1`,
+      [companyId],
     );
     const runs = rows.map(mapRun);
     const latest = runs.reduce((a, r) => (r.startedAt.slice(0, 10) > a ? r.startedAt.slice(0, 10) : a), "");
@@ -76,20 +76,20 @@ export class PgAgentRunner implements AgentRunner {
     };
   }
 
-  async runNow(locationId: string, agentId: string): Promise<AgentRun> {
+  async runNow(companyId: string, agentId: string): Promise<AgentRun> {
     // Placeholder until the real agentic loop lands (see orchestrator/) — returns the most
     // recent historical run for this agent/location so the endpoint and UI are exercisable now.
     const { rows } = await this.pool.query<RunRow>(
-      `select id, agent_id, location_id, started_at, finished_at, duration_ms, status, goal, steps, outcome
-       from agent_runs where location_id = $1 and agent_id = $2 order by started_at desc limit 1`,
-      [locationId, agentId],
+      `select id, agent_id, company_id, started_at, finished_at, duration_ms, status, goal, steps, outcome
+       from agent_runs where company_id = $1 and agent_id = $2 order by started_at desc limit 1`,
+      [companyId, agentId],
     );
     if (rows[0]) return mapRun(rows[0]);
     const now = new Date().toISOString();
     return {
-      id: `${locationId}:${now}:${agentId}`,
+      id: `${companyId}:${now}:${agentId}`,
       agentId,
-      locationId,
+      companyId,
       startedAt: now,
       finishedAt: now,
       durationMs: 0,
