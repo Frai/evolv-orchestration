@@ -1,11 +1,11 @@
 import { Module } from "@nestjs/common";
 import { NarratorController } from "./narrator.controller";
 import { NARRATOR } from "./narrator.token";
-import { PgNarrator } from "./providers/pg-narrator.provider";
+import { MemNarrator } from "./providers/mem-narrator.provider";
 
 @Module({
   controllers: [NarratorController],
-  providers: [{ provide: NARRATOR, useClass: PgNarrator }],
+  providers: [{ provide: NARRATOR, useClass: MemNarrator }],
   exports: [NARRATOR],
 })
 export class NarratorModule {}

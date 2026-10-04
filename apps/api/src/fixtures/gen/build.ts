@@ -1,6 +1,6 @@
 /**
- * Seeded fixture generator, shared by the local-inspection script (generate-fixtures.ts) and the
- * Supabase seed script (scripts/seed-supabase.ts) so both produce the exact same deterministic dataset.
+ * Seeded fixture generator, shared by the API's in-memory store (src/store/store.service.ts) and the
+ * local-inspection script (generate-fixtures.ts) so both produce the exact same deterministic dataset.
  */
 import type {
   Agent,
@@ -22,7 +22,7 @@ import type {
   QAPair,
   SafetyEvent,
 } from "@evolv/contracts/types";
-import { addDays, todayISO } from "@evolv/contracts/dates";
+import { addDays, todayISO, weekday } from "@evolv/contracts/dates";
 import { buildBriefInput } from "@evolv/contracts/brief";
 import { detectAlerts, type AlertInput } from "@evolv/contracts/alerts";
 import { COMPANIES, JOBS } from "./world";
@@ -72,7 +72,9 @@ export interface FixtureSet {
 
 export function buildFixtureSet(): FixtureSet {
   const today = process.env.FIXTURE_TODAY ?? todayISO();
-  const asOf = addDays(today, -1);
+  // "Yesterday" is the last day with job cost: crews book nothing on weekends, so a weekend demo shows Friday.
+  let asOf = addDays(today, -1);
+  while (weekday(asOf) === 0 || weekday(asOf) === 6) asOf = addDays(asOf, -1);
   const dates = Array.from({ length: HISTORY_DAYS }, (_, i) => addDays(asOf, -(HISTORY_DAYS - 1 - i)));
 
   const out: FixtureSet = {

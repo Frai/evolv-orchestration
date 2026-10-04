@@ -1,7 +1,7 @@
 /**
  * Local-inspection convenience only: dumps the deterministic fixture set to JSON and prints a summary.
- * `npm run fixtures` regenerates /src/fixtures/data. The real data source is Postgres
- * (see scripts/seed-supabase.ts, which shares the same gen/build.ts pipeline).
+ * `npm run fixtures` regenerates /src/fixtures/data. The API does not read these files: it builds the
+ * same set in memory at startup (see src/store/store.service.ts, which shares gen/build.ts).
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

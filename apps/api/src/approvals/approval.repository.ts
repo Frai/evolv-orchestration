@@ -1,63 +1,26 @@
-import { Inject, Injectable } from "@nestjs/common";
-import type { Pool } from "pg";
+import { Injectable } from "@nestjs/common";
 import type { Approval } from "@evolv/contracts/types";
-import { PG_POOL, type Executor } from "../db/pg-pool.provider";
+import { StoreService } from "../store/store.service";
 
-interface ApprovalRow {
-  id: string;
-  company_id: string;
-  agent_id: string;
-  run_id: string | null;
-  title: string;
-  summary: string;
-  amount: string | null;
-  ref_id: string | null;
-  evidence: Approval["evidence"];
-  status: Approval["status"];
-  proposed_at: string;
-  resolved_at: string | null;
-  confirmation: string;
-  action: string;
-}
-const mapRow = (r: ApprovalRow): Approval => ({
-  id: r.id,
-  companyId: r.company_id,
-  agentId: r.agent_id,
-  runId: r.run_id ?? undefined,
-  title: r.title,
-  summary: r.summary,
-  amount: r.amount === null ? undefined : Number(r.amount),
-  refId: r.ref_id ?? undefined,
-  evidence: r.evidence,
-  status: r.status,
-  proposedAt: r.proposed_at,
-  resolvedAt: r.resolved_at ?? undefined,
-  confirmation: r.confirmation,
-  action: r.action,
-});
-
-/** Replaces the old process-memory ApprovalStoreService. */
 @Injectable()
 export class ApprovalRepository {
-  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+  constructor(private readonly store: StoreService) {}
 
   async list(companyId: string): Promise<Approval[]> {
-    const { rows } = await this.pool.query<ApprovalRow>(`select * from approvals where company_id = $1 order by proposed_at desc`, [companyId]);
-    return rows.map(mapRow);
+    return this.store.fx.approvals.filter((a) => a.companyId === companyId).sort((a, b) => b.proposedAt.localeCompare(a.proposedAt));
   }
 
-  async get(id: string, executor: Executor = this.pool): Promise<Approval | undefined> {
-    const { rows } = await executor.query<ApprovalRow>(`select * from approvals where id = $1`, [id]);
-    return rows[0] ? mapRow(rows[0]) : undefined;
+  async get(id: string): Promise<Approval | undefined> {
+    return this.store.fx.approvals.find((a) => a.id === id);
   }
 
-  async update(id: string, patch: Partial<Pick<Approval, "status" | "resolvedAt" | "action" | "confirmation">>, executor: Executor = this.pool): Promise<Approval> {
-    const { rows } = await executor.query<ApprovalRow>(
-      `update approvals set status = coalesce($2, status), resolved_at = coalesce($3, resolved_at), action = coalesce($4, action), confirmation = coalesce($5, confirmation)
-       where id = $1 returning *`,
-      [id, patch.status ?? null, patch.resolvedAt ?? null, patch.action ?? null, patch.confirmation ?? null],
-    );
-    if (!rows[0]) throw new Error(`Approval ${id} not found`);
-    return mapRow(rows[0]);
+  async update(id: string, patch: Partial<Pick<Approval, "status" | "resolvedAt" | "action" | "confirmation">>): Promise<Approval> {
+    const approval = this.store.fx.approvals.find((a) => a.id === id);
+    if (!approval) throw new Error(`Approval ${id} not found`);
+    if (patch.status !== undefined) approval.status = patch.status;
+    if (patch.resolvedAt !== undefined) approval.resolvedAt = patch.resolvedAt;
+    if (patch.action !== undefined) approval.action = patch.action;
+    if (patch.confirmation !== undefined) approval.confirmation = patch.confirmation;
+    return approval;
   }
 }

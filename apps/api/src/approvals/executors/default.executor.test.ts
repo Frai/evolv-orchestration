@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { PoolClient } from "pg";
 import type { Approval } from "@evolv/contracts/types";
 import { DefaultExecutor } from "./default.executor";
 
@@ -18,6 +17,6 @@ const approval: Approval = {
 
 describe("DefaultExecutor", () => {
   it("passes through the approval's existing confirmation untouched: drafts only, no write-back", async () => {
-    await expect(new DefaultExecutor().execute(approval, {} as PoolClient)).resolves.toBe("the existing canned confirmation");
+    await expect(new DefaultExecutor().execute(approval)).resolves.toBe("the existing canned confirmation");
   });
 });

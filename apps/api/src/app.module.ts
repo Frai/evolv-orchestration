@@ -1,5 +1,5 @@
 import { Module } from "@nestjs/common";
-import { DbModule } from "./db/db.module";
+import { StoreModule } from "./store/store.module";
 import { ProjectsModule } from "./projects/projects.module";
 import { BillingModule } from "./billing/billing.module";
 import { ResourcesModule } from "./resources/resources.module";
@@ -12,7 +12,7 @@ import { IntegrationsModule } from "./integrations/integrations.module";
 
 @Module({
   imports: [
-    DbModule,
+    StoreModule,
     ProjectsModule,
     BillingModule,
     ResourcesModule,

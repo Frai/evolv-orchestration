@@ -4,7 +4,7 @@ import type { Approval } from "@evolv/contracts/types";
 import { ApprovalsService } from "../approvals.service";
 
 @Injectable()
-export class PgApprovalQueue implements ApprovalQueue {
+export class MemApprovalQueue implements ApprovalQueue {
   constructor(private readonly approvals: ApprovalsService) {}
 
   async listApprovals(companyId: string): Promise<Approval[]> {

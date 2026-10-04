@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PoolClient } from "pg";
 import type { Approval } from "@evolv/contracts/types";
 import { ChangeOrderExecutor } from "./change-order.executor";
 import type { ChangeOrderRepository } from "../../billing/change-order.repository";
-
-const FAKE_CLIENT = {} as PoolClient;
 
 function approval(overrides: Partial<Approval> = {}): Approval {
   return {
@@ -30,12 +27,11 @@ describe("ChangeOrderExecutor", () => {
     const create = vi.fn().mockResolvedValue({ id: "ridge-loop:co-2", number: "CO-002" });
     const executor = new ChangeOrderExecutor({ findExtraWorkCode, create } as unknown as ChangeOrderRepository);
 
-    const confirmation = await executor.execute(approval(), FAKE_CLIENT);
+    const confirmation = await executor.execute(approval());
 
-    expect(findExtraWorkCode).toHaveBeenCalledWith("ridge-loop:99-100", FAKE_CLIENT);
+    expect(findExtraWorkCode).toHaveBeenCalledWith("ridge-loop:99-100");
     expect(create).toHaveBeenCalledWith(
       { jobId: "ridge-loop", codeId: "ridge-loop:99-100", title: "Extra work: Rock excavation (T&M, outside scope)", amount: 110_200 },
-      FAKE_CLIENT,
     );
     expect(confirmation).toContain("CO-002");
     expect(confirmation).toContain("$110,200");
@@ -47,7 +43,7 @@ describe("ChangeOrderExecutor", () => {
     const create = vi.fn();
     const executor = new ChangeOrderExecutor({ findExtraWorkCode, create } as unknown as ChangeOrderRepository);
 
-    await expect(executor.execute(approval({ refId: undefined }), FAKE_CLIENT)).resolves.toBe("Canned fallback confirmation.");
+    await expect(executor.execute(approval({ refId: undefined }))).resolves.toBe("Canned fallback confirmation.");
     expect(findExtraWorkCode).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
   });
@@ -57,7 +53,7 @@ describe("ChangeOrderExecutor", () => {
     const create = vi.fn();
     const executor = new ChangeOrderExecutor({ findExtraWorkCode, create } as unknown as ChangeOrderRepository);
 
-    await expect(executor.execute(approval(), FAKE_CLIENT)).resolves.toBe("Canned fallback confirmation.");
+    await expect(executor.execute(approval())).resolves.toBe("Canned fallback confirmation.");
     expect(create).not.toHaveBeenCalled();
   });
 });

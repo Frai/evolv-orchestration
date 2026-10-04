@@ -4,19 +4,17 @@ A clickable demo of Evolv for oil and gas field service and construction contrac
 
 The data is synthetic and deterministic. The signal rules are real: they run at request time over the canonical model, so what you see is what the rules would say about real data. No vendor is called and no model runs at runtime. Plan and rationale: [`docs/OIL_GAS_PIVOT.md`](docs/OIL_GAS_PIVOT.md). Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-This is a Turborepo monorepo: a Next.js frontend (`apps/web`) over a NestJS backend (`apps/api`) backed by Postgres, with shared domain code in `packages/contracts`.
+This is a Turborepo monorepo: a Next.js frontend (`apps/web`) over a NestJS backend (`apps/api`) that holds the demo world in memory, with shared domain code in `packages/contracts`.
 
 ## Run it
 
 ```bash
 npm install
-# Postgres: apply supabase/migrations/*.sql, then seed it
-DATABASE_URL=postgresql://... npm run seed --workspace=@evolv/api
 npm run dev          # apps/web on :3000, apps/api on :3001
 npm run test         # contracts, api and web unit tests
 ```
 
-`apps/api` needs `DATABASE_URL` (see `apps/api/.env.example`; `WEB_ORIGIN` must match the web origin for CORS). `apps/web` needs `NEXT_PUBLIC_API_BASE_URL` (see `apps/web/.env.local.example`). Set `FIXTURE_TODAY=YYYY-MM-DD` before seeding to pin "yesterday". Seeding truncates and refills every demo table, so it is safe to rerun, and rerunning resets approvals.
+There is no database. `apps/api` builds the whole mock world in memory at startup (`WEB_ORIGIN` must match the web origin for CORS; see `apps/api/.env.example`). `apps/web` needs `NEXT_PUBLIC_API_BASE_URL` (see `apps/web/.env.local.example`). Set `FIXTURE_TODAY=YYYY-MM-DD` to pin "yesterday". State changes (approving a draft) live in the API process and reset when it restarts.
 
 Sign in with any email and password. The session lives in memory and resets on reload.
 
@@ -28,7 +26,6 @@ apps/api                NestJS backend, one module per port
   src/fixtures/gen      seeded generator for the mock world
 packages/contracts      shared, framework-free: domain types, port interfaces, and the pure
                         domain functions (EVM, billing leakage, alert rules, brief inputs)
-supabase/migrations     0001 restaurant schema (legacy), 0002 contractor schema
 ```
 
 ## Mock world
@@ -48,4 +45,4 @@ Today, Jobs (earned-value S-curve and cost-code drill-down), Labour (overtime), 
 
 ## The one real write
 
-Approving a Change-Order Catcher draft inserts a pending change order for the extra-work cost code, in the same transaction as the approval. The "booked with no change order" signal then clears on the next load. Every other agent drafts only: a person sends the email, the billing package or the reminder. Nothing writes back to accounting, payroll or safety systems, and safety is routed and reminded, never decided.
+Approving a Change-Order Catcher draft adds a pending change order for the extra-work cost code. The "booked with no change order" signal then clears on the next load. Every other agent drafts only: a person sends the email, the billing package or the reminder. Nothing writes back to accounting, payroll or safety systems, and safety is routed and reminded, never decided.

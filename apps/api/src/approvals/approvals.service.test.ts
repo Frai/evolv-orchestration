@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Pool, PoolClient } from "pg";
 import type { Approval } from "@evolv/contracts/types";
 import { ApprovalsService } from "./approvals.service";
 import type { ApprovalRepository } from "./approval.repository";
@@ -22,25 +21,17 @@ function approval(overrides: Partial<Approval> = {}): Approval {
   };
 }
 
-/** A fake Pool whose connect() hands back a fake client that tolerates BEGIN/COMMIT/ROLLBACK. */
-function fakePool() {
-  const client = { query: vi.fn().mockResolvedValue({ rows: [] }), release: vi.fn() } as unknown as PoolClient;
-  const pool = { connect: vi.fn().mockResolvedValue(client) } as unknown as Pool;
-  return { pool, client };
-}
-
-function buildService(overrides: { notFound?: boolean; agentId?: string } = {}) {
-  const { pool, client } = fakePool();
+function buildService(overrides: { notFound?: boolean; agentId?: string; status?: Approval["status"] } = {}) {
   const store = {
-    get: vi.fn().mockResolvedValue(overrides.notFound ? undefined : approval({ agentId: overrides.agentId })),
+    get: vi.fn().mockResolvedValue(overrides.notFound ? undefined : approval({ agentId: overrides.agentId, status: overrides.status ?? "pending" })),
     update: vi.fn().mockImplementation(async (id: string, patch: Partial<Approval>) => ({ ...approval(), id, ...patch })),
   } as unknown as ApprovalRepository;
 
   const changeOrder = { execute: vi.fn().mockResolvedValue("change order confirmation") } as unknown as ChangeOrderExecutor;
   const defaultExecutor = { execute: vi.fn().mockResolvedValue("default confirmation") } as unknown as DefaultExecutor;
 
-  const service = new ApprovalsService(pool, store, changeOrder, defaultExecutor);
-  return { service, store, client, executors: { changeOrder, defaultExecutor } };
+  const service = new ApprovalsService(store, changeOrder, defaultExecutor);
+  return { service, store, executors: { changeOrder, defaultExecutor } };
 }
 
 describe("ApprovalsService.resolve", () => {
@@ -50,7 +41,7 @@ describe("ApprovalsService.resolve", () => {
 
     expect(executors.changeOrder.execute).toHaveBeenCalledTimes(1);
     expect(executors.defaultExecutor.execute).not.toHaveBeenCalled();
-    expect(store.update).toHaveBeenCalledWith("appr-1", expect.objectContaining({ status: "approved", confirmation: "change order confirmation" }), expect.anything());
+    expect(store.update).toHaveBeenCalledWith("appr-1", expect.objectContaining({ status: "approved", confirmation: "change order confirmation" }));
     expect(result.confirmation).toBe("change order confirmation");
   });
 
@@ -65,19 +56,28 @@ describe("ApprovalsService.resolve", () => {
     },
   );
 
+  it("does nothing when the approval was already decided, so resolving twice cannot write twice", async () => {
+    const { service, store, executors } = buildService({ agentId: "change-order-catcher", status: "approved" });
+    const result = await service.resolve({ approvalId: "appr-1", status: "approved" });
+
+    expect(result.status).toBe("approved");
+    expect(executors.changeOrder.execute).not.toHaveBeenCalled();
+    expect(store.update).not.toHaveBeenCalled();
+  });
+
   it("does not run any executor when rejecting", async () => {
     const { service, store, executors } = buildService({ agentId: "change-order-catcher" });
     const result = await service.resolve({ approvalId: "appr-1", status: "rejected" });
 
     expect(executors.changeOrder.execute).not.toHaveBeenCalled();
     expect(result.status).toBe("rejected");
-    expect(store.update).toHaveBeenCalledWith("appr-1", expect.objectContaining({ status: "rejected", confirmation: "canned" }), expect.anything());
+    expect(store.update).toHaveBeenCalledWith("appr-1", expect.objectContaining({ status: "rejected", confirmation: "canned" }));
   });
 
   it("uses editedAction over the original action when provided", async () => {
     const { service, store } = buildService({ agentId: "change-order-catcher" });
     await service.resolve({ approvalId: "appr-1", status: "approved", editedAction: "Submit at cost, no markup." });
-    expect(store.update).toHaveBeenCalledWith("appr-1", expect.objectContaining({ action: "Submit at cost, no markup." }), expect.anything());
+    expect(store.update).toHaveBeenCalledWith("appr-1", expect.objectContaining({ action: "Submit at cost, no markup." }));
   });
 
   it("throws NotFoundException when the approval does not exist", async () => {

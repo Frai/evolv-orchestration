@@ -1,5 +1,4 @@
 import { Injectable } from "@nestjs/common";
-import type { PoolClient } from "pg";
 import type { Approval } from "@evolv/contracts/types";
 import type { ApprovalExecutor } from "./approval-executor";
 
@@ -10,7 +9,7 @@ import type { ApprovalExecutor } from "./approval-executor";
  */
 @Injectable()
 export class DefaultExecutor implements ApprovalExecutor {
-  async execute(approval: Approval, _client: PoolClient): Promise<string> {
+  async execute(approval: Approval): Promise<string> {
     return approval.confirmation;
   }
 }
