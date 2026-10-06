@@ -1,6 +1,6 @@
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { signedPct, signedPts } from "@evolv/contracts/format";
+import { signedPct, signedPts } from "@/lib/construction/format";
 
 /**
  * Signed delta with direction arrow. `goodWhen` says which direction is good for this metric.

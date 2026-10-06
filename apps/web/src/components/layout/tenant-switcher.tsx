@@ -5,39 +5,23 @@ import { useAppState } from "@/components/providers/app-state";
 import { cn } from "@/lib/utils";
 
 export function TenantSwitcher({ className }: { className?: string }) {
-  const { locations, locationId, setLocationId, location, outletId, setOutletId } = useAppState();
-  const outlets = location?.outlets;
+  const { companies, companyId, setCompanyId } = useAppState();
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      <Select value={locationId} onValueChange={setLocationId}>
-        <SelectTrigger className="h-9 w-[150px] font-medium sm:w-[220px]" aria-label="Location">
+      <Select value={companyId} onValueChange={setCompanyId}>
+        <SelectTrigger className="h-9 w-[150px] font-medium sm:w-[240px]" aria-label="Company">
           <Building2 className="text-muted-foreground size-4 shrink-0" />
-          <SelectValue placeholder="Location" />
+          <SelectValue placeholder="Company" />
         </SelectTrigger>
         <SelectContent>
-          {locations.map((l) => (
-            <SelectItem key={l.id} value={l.id}>
-              <span className="sm:hidden">{l.shortName}</span>
-              <span className="hidden sm:inline">{l.name}</span>
+          {companies.map((c) => (
+            <SelectItem key={c.id} value={c.id}>
+              <span className="sm:hidden">{c.shortName}</span>
+              <span className="hidden sm:inline">{c.name}</span>
             </SelectItem>
           ))}
         </SelectContent>
       </Select>
-      {outlets ? (
-        <Select value={outletId ?? "all"} onValueChange={(v) => setOutletId(v === "all" ? undefined : v)}>
-          <SelectTrigger className="h-9 w-[124px] sm:w-[160px]" aria-label="Outlet">
-            <SelectValue placeholder="Outlet" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All outlets</SelectItem>
-            {outlets.map((o) => (
-              <SelectItem key={o.id} value={o.id}>
-                {o.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ) : null}
     </div>
   );
 }

@@ -13,8 +13,8 @@ interface Turn {
   answer?: string;
 }
 
-export function AskBox({ locationId, date }: { locationId: string; date: string }) {
-  const { data: suggestions } = useAsync(() => apiClient.narrator.suggestedQuestions(locationId), [locationId]);
+export function AskBox({ companyId }: { companyId: string }) {
+  const { data: suggestions } = useAsync(() => apiClient.narrator.suggestedQuestions(), []);
   const [q, setQ] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
@@ -25,8 +25,8 @@ export function AskBox({ locationId, date }: { locationId: string; date: string 
     setBusy(true);
     setQ("");
     setTurns((t) => [...t, { question: text }]);
-    const res = await apiClient.narrator.ask(locationId, date, text);
-    setTurns((t) => t.map((x, i) => (i === t.length - 1 ? { ...x, answer: res.answer } : x)));
+    const res = await apiClient.narrator.ask(companyId, text);
+    setTurns((t) => t.map((x, i) => (i === t.length - 1 ? { ...x, answer: res } : x)));
     setBusy(false);
   };
 
@@ -35,10 +35,10 @@ export function AskBox({ locationId, date }: { locationId: string; date: string 
     void ask(q);
   };
 
-  const placeholder = suggestions?.length ? `Try “${suggestions[0]}”` : "Ask about this day";
+  const placeholder = suggestions?.length ? `Try “${suggestions[0]}”` : "Ask about your jobs";
 
   return (
-    <Section title="Ask about this day" description="Answers come from the same numbers as the brief.">
+    <Section title="Ask about your jobs" description="Answers come from the same job cost, schedule and AP data as the brief.">
       <div className="flex flex-col gap-3">
         {turns.length ? (
           <ul className="flex flex-col gap-3">

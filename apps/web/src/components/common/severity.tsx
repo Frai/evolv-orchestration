@@ -1,5 +1,5 @@
 import { AlertTriangle, Info, OctagonAlert } from "lucide-react";
-import type { AlertSeverity } from "@evolv/contracts/types";
+import type { AlertSeverity } from "@/lib/construction/types";
 import { cn } from "@/lib/utils";
 
 export const SEVERITY_META: Record<AlertSeverity, { label: string; Icon: typeof Info; className: string; dot: string }> = {

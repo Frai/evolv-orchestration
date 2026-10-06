@@ -1,105 +1,79 @@
 /**
- * Typed HTTP client for the Evolv API (apps/api). Shaped identically to the old
- * in-process `adapters` object (same 9 namespaces, same method names) so every
- * component only needed its import swapped, not its call shape.
+ * Mocked API client for the construction demo. Every call resolves from the in-browser mock world
+ * (src/lib/construction) after a short delay, so pages keep their loading states. The namespaces are
+ * the seams a real backend plugs into later: swap a function body for a fetch() and nothing else moves.
  */
-import type {
-  Agent,
-  AgentRun,
-  Approval,
-  Brief,
-  DateRange,
-  DeliveryChannel,
-  DeliveryReceipt,
-  Integration,
-  ItemSales,
-  LabourDay,
-  Location,
-  MenuItem,
-  OrchestratorSummary,
-  QAPair,
-  SalesDay,
-  StockLevel,
-} from "@evolv/contracts/types";
-import type { CostSummary } from "@evolv/contracts/ports";
+import type { Agent, AgentRun, Alert, Approval, Brief, ChangeOrder, Company, Integration, Milestone, ProcurementItem, Project, Subcontractor } from "./construction/types";
+import { COMPANIES, TODAY, WORLD } from "./construction/fixtures";
+import {
+  AGENTS,
+  agentRuns,
+  answer,
+  approvalsFor,
+  buildBrief,
+  changeOrdersForCompany,
+  detectAlerts,
+  integrationSyncIso,
+  lastCycle,
+  milestonesForCompany,
+  procurementForCompany,
+  portfolio,
+  projectById,
+  projectFinancials,
+  projectsFor,
+  subsForCompany,
+  suggestedQuestions,
+  type CycleSummary,
+  type Portfolio,
+  type ProjectFinancials,
+} from "./construction/core";
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
-
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`);
-  if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
-  // Nest serializes non-object return values (e.g. a bare string) as plain text, not JSON.
-  const contentType = res.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) return res.json();
-  return (await res.text()) as unknown as T;
-}
-
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
-  return res.json();
-}
-
-function qs(params: Record<string, string | undefined>): string {
-  const search = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) if (v !== undefined) search.set(k, v);
-  return search.toString();
-}
-
-interface SalesQuery {
-  locationId: string;
-  outletId?: string;
-  range: DateRange;
-}
-
-interface LabourQuery {
-  locationId: string;
-  outletId?: string;
-  range: DateRange;
+function later<T>(value: T, ms = 180 + Math.round(Math.random() * 220)): Promise<T> {
+  return new Promise((resolve) => setTimeout(() => resolve(structuredClone(value)), ms));
 }
 
 export const apiClient = {
-  sales: {
-    listLocations: () => get<Location[]>("/sales/locations"),
-    getLocation: (id: string) => get<Location | undefined>(`/sales/locations/${id}`),
-    latestDate: (locationId: string) => get<string>(`/sales/locations/${locationId}/latest-date`),
-    getSalesDays: (q: SalesQuery) => get<SalesDay[]>(`/sales/days?${qs({ locationId: q.locationId, outletId: q.outletId, from: q.range.from, to: q.range.to })}`),
-    getMenu: (locationId: string, outletId?: string) => get<MenuItem[]>(`/sales/menu?${qs({ locationId, outletId })}`),
-    getItemSales: (q: SalesQuery) => get<ItemSales[]>(`/sales/item-sales?${qs({ locationId: q.locationId, outletId: q.outletId, from: q.range.from, to: q.range.to })}`),
+  companies: {
+    list: () => later<Company[]>(COMPANIES, 60),
+    today: () => later<string>(TODAY, 60),
   },
-  labour: {
-    getLabourDays: (q: LabourQuery) => get<LabourDay[]>(`/labour/days?${qs({ locationId: q.locationId, outletId: q.outletId, from: q.range.from, to: q.range.to })}`),
+  projects: {
+    list: (companyId: string) => later<Project[]>(projectsFor(companyId)),
+    get: (id: string) => later<Project | undefined>(projectById(id)),
+    financials: (id: string) => {
+      const p = projectById(id);
+      return later<ProjectFinancials | undefined>(p ? projectFinancials(p) : undefined);
+    },
   },
-  inventory: {
-    getStockLevels: (locationId: string) => get<StockLevel[]>(`/inventory/stock?${qs({ locationId })}`),
+  portfolio: {
+    get: (companyId: string) => later<Portfolio>(portfolio(companyId)),
+    alerts: (companyId: string, coAgingDays?: number) => later<Alert[]>(detectAlerts(companyId, coAgingDays)),
   },
-  accounting: {
-    getCostSummary: (locationId: string, range: DateRange) => get<CostSummary>(`/accounting/cost-summary?${qs({ locationId, from: range.from, to: range.to })}`),
+  changeOrders: {
+    list: (companyId: string) => later<ChangeOrder[]>(changeOrdersForCompany(companyId)),
+  },
+  schedule: {
+    milestones: (companyId: string) => later<Milestone[]>(milestonesForCompany(companyId)),
+    procurement: (companyId: string) => later<ProcurementItem[]>(procurementForCompany(companyId)),
+  },
+  subs: {
+    list: (companyId: string) => later<Subcontractor[]>(subsForCompany(companyId)),
   },
   narrator: {
-    getBrief: (locationId: string, date: string) => get<Brief | undefined>(`/narrator/brief?${qs({ locationId, date })}`),
-    listBriefs: (locationId: string) => get<Brief[]>(`/narrator/briefs?${qs({ locationId })}`),
-    suggestedQuestions: (locationId: string) => get<string[]>(`/narrator/suggested-questions?${qs({ locationId })}`),
-    ask: (locationId: string, date: string, question: string) => post<QAPair>("/narrator/ask", { locationId, date, question }),
-  },
-  notifier: {
-    send: (channel: DeliveryChannel, to: string[], subject: string, body: string) => post<DeliveryReceipt>("/notifier/send", { channel, to, subject, body }),
-    lastDelivery: (locationId: string) => get<DeliveryReceipt | undefined>(`/notifier/last-delivery?${qs({ locationId })}`),
+    getBrief: (companyId: string) => later<Brief>(buildBrief(companyId)),
+    suggestedQuestions: () => later<string[]>(suggestedQuestions(), 80),
+    ask: (companyId: string, question: string) => later<string>(answer(companyId, question), 700 + Math.round(Math.random() * 500)),
   },
   agents: {
-    listAgents: () => get<Agent[]>("/agents"),
-    listRuns: (locationId: string, agentId?: string) => get<AgentRun[]>(`/agents/runs?${qs({ locationId, agentId })}`),
-    getRun: (runId: string) => get<AgentRun | undefined>(`/agents/runs/${runId}`),
-    lastCycle: (locationId: string) => get<OrchestratorSummary>(`/agents/last-cycle?${qs({ locationId })}`),
+    listAgents: () => later<Agent[]>(AGENTS, 80),
+    listRuns: (companyId: string) => later<AgentRun[]>(agentRuns(companyId)),
+    lastCycle: (companyId: string) => later<CycleSummary>(lastCycle(companyId)),
   },
   approvals: {
-    listApprovals: (locationId: string) => get<Approval[]>(`/approvals?${qs({ locationId })}`),
+    list: (companyId: string) => later<Approval[]>(approvalsFor(companyId)),
   },
   integrations: {
-    listIntegrations: (locationId: string) => get<Integration[]>(`/integrations?${qs({ locationId })}`),
+    list: (companyId: string) =>
+      later<Integration[]>(WORLD.integrations[companyId].map((i, n) => (i.state === "connected" ? { ...i, lastSyncAt: integrationSyncIso(companyId, 4 + (n % 9)) } : i))),
   },
 };

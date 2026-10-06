@@ -2,8 +2,8 @@
 import { useState } from "react";
 import { Check, Clock, Plug } from "lucide-react";
 import { useAppState } from "@/components/providers/app-state";
-import type { Integration, IntegrationArea } from "@evolv/contracts/types";
-import { timeOfDay } from "@evolv/contracts/format";
+import type { Integration, IntegrationArea } from "@/lib/construction/types";
+import { timeOfDay } from "@/lib/construction/format";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,23 +13,22 @@ import { ConnectDialog } from "./connect-dialog";
 import { cn } from "@/lib/utils";
 
 const AREAS: { id: IntegrationArea; label: string; blurb: string }[] = [
-  { id: "pos", label: "Point of sale", blurb: "Where sales, items and hours come from." },
-  { id: "scheduling", label: "Scheduling", blurb: "Scheduled vs actual hours and wage bands." },
-  { id: "inventory", label: "Inventory", blurb: "Counts, par levels and supplier orders." },
-  { id: "accounting", label: "Accounting", blurb: "P&L and cash for Finance Insights." },
-  { id: "delivery", label: "Delivery", blurb: "Order volume and commissions by platform." },
-  { id: "reservations", label: "Reservations", blurb: "Covers booked, no-shows and guest notes." },
+  { id: "project_management", label: "Project management", blurb: "Budgets, commitments, change events, RFIs, submittals and schedule." },
+  { id: "accounting", label: "Construction accounting", blurb: "Job cost, AP, AR, progress billing and holdback." },
+  { id: "documents", label: "Drawings and documents", blurb: "Drawings, ASIs and markups that back up change pricing." },
+  { id: "field", label: "Field", blurb: "Daily logs, crew hours and production quantities." },
+  { id: "estimating", label: "Estimating", blurb: "Original estimate unit rates, used to price changes." },
   { id: "messaging", label: "Messaging", blurb: "Where the morning brief and alerts go." },
 ];
 
 export function IntegrationsPage() {
-  const { integrations, integrationsLoading, location, connectIntegration } = useAppState();
+  const { integrations, integrationsLoading, company, connectIntegration } = useAppState();
   const [connecting, setConnecting] = useState<Integration | null>(null);
   const connected = integrations.filter((i) => i.state === "connected").length;
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="Integrations" description={`${connected} connected at ${location?.name}. Connecting takes about a minute and never needs a developer.`} />
+      <PageHeader title="Integrations" description={`${connected} connected for ${company?.name}. Connecting takes about a minute and never needs a developer.`} />
       {integrationsLoading ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-28" />)}</div>
       ) : (
@@ -44,7 +43,7 @@ export function IntegrationsPage() {
               </div>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {items.map((i) => (
-                  <IntegrationCard key={i.id} integration={i} onConnect={() => setConnecting(i)} />
+                  <IntegrationCard key={i.id} integration={i} tz={company!.timeZone} onConnect={() => setConnecting(i)} />
                 ))}
               </div>
             </section>
@@ -70,7 +69,7 @@ function VendorMark({ name }: { name: string }) {
   return <span className="bg-muted text-muted-foreground grid size-9 shrink-0 place-items-center rounded-lg text-xs font-semibold">{initials}</span>;
 }
 
-function IntegrationCard({ integration: i, onConnect }: { integration: Integration; onConnect: () => void }) {
+function IntegrationCard({ integration: i, tz, onConnect }: { integration: Integration; tz: string; onConnect: () => void }) {
   const coming = i.state === "coming_soon";
   return (
     <Card className={cn("gap-3 px-4 py-4", coming && "bg-muted/40")}>
@@ -96,7 +95,7 @@ function IntegrationCard({ integration: i, onConnect }: { integration: Integrati
           <Badge variant="outline">Available</Badge>
         )}
         {i.state === "connected" ? (
-          <span className="text-muted-foreground text-xs">Last sync {i.lastSyncAt ? timeOfDay(i.lastSyncAt) : "—"}</span>
+          <span className="text-muted-foreground text-xs">Last sync {i.lastSyncAt ? timeOfDay(i.lastSyncAt, tz) : "—"}</span>
         ) : coming ? (
           <Button size="sm" variant="ghost" disabled>
             Notify me

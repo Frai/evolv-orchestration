@@ -5,8 +5,8 @@ import { Bot, Check, CheckCircle2, Pencil, X, XCircle } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { useAppState } from "@/components/providers/app-state";
 import { useAsync } from "@/hooks/use-async";
-import type { Agent, AgentMode, Approval } from "@evolv/contracts/types";
-import { dateTime, money } from "@evolv/contracts/format";
+import type { Agent, AgentMode, Approval } from "@/lib/construction/types";
+import { dateTime, money } from "@/lib/construction/format";
 import { PageHeader } from "@/components/layout/page-header";
 import { Section } from "@/components/common/section";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 export function ApprovalsPage() {
-  const { approvals, approvalsLoading, resolveApproval, editApproval, location, agentModes, setAgentMode } = useAppState();
+  const { approvals, approvalsLoading, resolveApproval, editApproval, company, agentModes, setAgentMode } = useAppState();
   const agents = useAsync(() => apiClient.agents.listAgents(), []);
   const [editing, setEditing] = useState<Approval | null>(null);
   const [draft, setDraft] = useState("");
@@ -33,7 +33,7 @@ export function ApprovalsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Approvals" description={`Actions agents want to take at ${location?.name}. Nothing happens until you say so.`} />
+      <PageHeader title="Approvals" description={`Actions agents want to take for ${company?.name}. Nothing goes to an owner, supplier or sub until you say so.`} />
 
       <Tabs defaultValue="queue">
         <TabsList>
@@ -54,6 +54,7 @@ export function ApprovalsPage() {
                   key={a.id}
                   approval={a}
                   agentName={agentName(a.agentId)}
+                  tz={company!.timeZone}
                   onApprove={() => resolveApproval(a.id, "approved")}
                   onReject={() => resolveApproval(a.id, "rejected")}
                   onEdit={() => {
@@ -74,7 +75,7 @@ export function ApprovalsPage() {
           ) : done.length ? (
             <div className="flex flex-col gap-3">
               {done.map((a) => (
-                <ApprovalCard key={a.id} approval={a} agentName={agentName(a.agentId)} />
+                <ApprovalCard key={a.id} approval={a} agentName={agentName(a.agentId)} tz={company!.timeZone} />
               ))}
             </div>
           ) : (
@@ -129,14 +130,14 @@ export function ApprovalsPage() {
   );
 }
 
-function ApprovalCard({ approval: a, agentName, onApprove, onReject, onEdit }: { approval: Approval; agentName: string; onApprove?: () => void; onReject?: () => void; onEdit?: () => void }) {
+function ApprovalCard({ approval: a, agentName, tz, onApprove, onReject, onEdit }: { approval: Approval; agentName: string; tz: string; onApprove?: () => void; onReject?: () => void; onEdit?: () => void }) {
   const resolved = a.status !== "pending";
   return (
     <Card className={cn("gap-3 px-4", resolved && a.status === "rejected" && "opacity-80")}>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-muted-foreground inline-flex items-center gap-1"><Bot className="size-3.5" /> {agentName}</span>
         <span className="text-muted-foreground">·</span>
-        <span className="text-muted-foreground">{dateTime(a.proposedAt)}</span>
+        <span className="text-muted-foreground">{dateTime(a.proposedAt, tz)}</span>
         {a.runId ? (
           <Link href={`/agents/?run=${encodeURIComponent(a.runId)}`} className="text-primary underline-offset-2 hover:underline">
             View trace
@@ -164,7 +165,7 @@ function ApprovalCard({ approval: a, agentName, onApprove, onReject, onEdit }: {
             </dd>
           </div>
         ))}
-        {a.amount && a.agentId === "inventory-guard" ? (
+        {a.amount ? (
           <div className="bg-muted/50 rounded-md px-2.5 py-1.5">
             <dt className="text-muted-foreground text-[11px]">Amount</dt>
             <dd className="tnum font-medium">{money(a.amount)}</dd>
@@ -175,7 +176,7 @@ function ApprovalCard({ approval: a, agentName, onApprove, onReject, onEdit }: {
       {resolved ? (
         <p className={cn("rounded-md border px-3 py-2 text-sm", a.status === "approved" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-900")}>
           {a.confirmation}
-          {a.resolvedAt ? <span className="ml-1 opacity-70">({dateTime(a.resolvedAt)})</span> : null}
+          {a.resolvedAt ? <span className="ml-1 opacity-70">({dateTime(a.resolvedAt, tz)})</span> : null}
         </p>
       ) : (
         <div className="grid grid-cols-3 gap-2 sm:flex sm:justify-end">

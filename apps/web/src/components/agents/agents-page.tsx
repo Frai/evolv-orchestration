@@ -5,8 +5,8 @@ import { AlertCircle, ArrowLeft, Bot, CheckCircle2, ChevronRight, Clock, HandMet
 import { apiClient } from "@/lib/api-client";
 import { useAppState } from "@/components/providers/app-state";
 import { useAsync } from "@/hooks/use-async";
-import type { Agent, AgentRun, RunStatus } from "@evolv/contracts/types";
-import { dateTime, durationMs, shortDateWeekday, timeOfDay } from "@evolv/contracts/format";
+import type { Agent, AgentRun, RunStatus } from "@/lib/construction/types";
+import { dateTime, durationMs, shortDateWeekday, timeOfDay } from "@/lib/construction/format";
 import { PageHeader } from "@/components/layout/page-header";
 import { Section } from "@/components/common/section";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +34,8 @@ export function AgentsPage() {
 }
 
 function AgentsPageInner() {
-  const { locationId, location, agentModes } = useAppState();
+  const { companyId: locationId, company, agentModes } = useAppState();
+  const tz = company!.timeZone;
   const params = useSearchParams();
   const router = useRouter();
   const deepRun = params.get("run");
@@ -72,9 +73,9 @@ function AgentsPageInner() {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Agents" description={`What ran overnight for ${location?.name}, step by step.`} />
+      <PageHeader title="Agents" description={`What ran overnight for ${company?.name}, step by step. Every tool call is logged.`} />
 
-      <OrchestratorPanel summary={cycle.data} loading={cycle.loading} onSelectRun={(r) => setSel({ loc: locationId, agentId: r.agentId, runId: r.id })} />
+      <OrchestratorPanel summary={cycle.data?.runs[0]?.companyId === locationId ? cycle.data : undefined} loading={cycle.loading} tz={tz} onSelectRun={(r) => setSel({ loc: locationId, agentId: r.agentId, runId: r.id })} />
 
       {selectedAgent ? (
         <Section
@@ -102,7 +103,7 @@ function AgentsPageInner() {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-x-2 text-sm">
                           <span className="font-medium">{shortDateWeekday(r.startedAt.slice(0, 10))}</span>
-                          <span className="text-muted-foreground">{timeOfDay(r.startedAt)}</span>
+                          <span className="text-muted-foreground">{timeOfDay(r.startedAt, tz)}</span>
                           <span className="text-muted-foreground tnum">· {r.steps.length} steps · {durationMs(r.durationMs)}</span>
                         </div>
                         <div className="text-muted-foreground truncate text-xs">{r.outcome.summary}</div>
@@ -123,7 +124,7 @@ function AgentsPageInner() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {agents.loading
             ? [0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-36" />)
-            : agents.data?.map((a) => <AgentCard key={a.id} agent={a} lastRun={lastRunByAgent.get(a.id)} mode={agentModes[a.id] ?? a.defaultMode} onOpen={() => setAgentId(a.id)} />)}
+            : agents.data?.map((a) => <AgentCard key={a.id} agent={a} lastRun={lastRunByAgent.get(a.id)} mode={agentModes[a.id] ?? a.defaultMode} tz={tz} onOpen={() => setAgentId(a.id)} />)}
         </div>
       )}
 
@@ -137,7 +138,7 @@ function AgentsPageInner() {
                 </div>
                 <SheetTitle className="leading-snug">{selectedRun.goal}</SheetTitle>
                 <SheetDescription>
-                  {dateTime(selectedRun.startedAt)} · {durationMs(selectedRun.durationMs)} · {selectedRun.steps.length} steps
+                  {dateTime(selectedRun.startedAt, tz)} · {durationMs(selectedRun.durationMs)} · {selectedRun.steps.length} steps
                 </SheetDescription>
               </SheetHeader>
               <div className="px-4 pb-6">
@@ -151,7 +152,7 @@ function AgentsPageInner() {
   );
 }
 
-function AgentCard({ agent, lastRun, mode, onOpen }: { agent: Agent; lastRun?: AgentRun; mode: string; onOpen: () => void }) {
+function AgentCard({ agent, lastRun, mode, tz, onOpen }: { agent: Agent; lastRun?: AgentRun; mode: string; tz: string; onOpen: () => void }) {
   const coming = agent.status === "coming_soon";
   const st = lastRun ? RUN_STATUS[lastRun.status] : null;
   return (
@@ -173,7 +174,7 @@ function AgentCard({ agent, lastRun, mode, onOpen }: { agent: Agent; lastRun?: A
         {lastRun && st ? (
           <span className="text-muted-foreground inline-flex min-w-0 items-center gap-1.5 text-xs">
             <st.Icon className={cn("size-3.5 shrink-0", lastRun.status === "success" ? "text-emerald-600" : lastRun.status === "needs_approval" ? "text-amber-600" : "text-red-600")} />
-            <span className="truncate">Last run {timeOfDay(lastRun.startedAt)} · {st.label}</span>
+            <span className="truncate">Last run {timeOfDay(lastRun.startedAt, tz)} · {st.label}</span>
           </span>
         ) : (
           <span className="text-muted-foreground inline-flex items-center gap-1.5 text-xs">

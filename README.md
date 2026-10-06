@@ -1,14 +1,14 @@
 # Evolv demo site
 
-A clickable, fully mocked web app that looks like the finished Evolv product. Built for the LOI restaurants and hotels to click through and react to. Nothing here talks to a real vendor, and no model is called at runtime.
+A clickable, fully mocked web app that looks like the finished Evolv product, now pointed at **mid-size general contractors** ($20–150M revenue, 5–15 active jobs). Nothing here talks to a real vendor, and no model is called at runtime.
 
-This is a Turborepo monorepo: a Next.js frontend (`apps/web`) talking over HTTP to a NestJS backend (`apps/api`). See **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** for the full picture — the hexagonal split, the 9 ports and their modules, and how to wire in a real vendor later.
+> **Current state:** `apps/web` is the construction demo and is self-contained — its mock data, rules and API client live in `apps/web/src/lib`. It no longer calls `apps/api` or imports `packages/contracts`; those still hold the earlier restaurant/hotel build and are untouched. See [Construction demo](#construction-demo) below.
 
 ## Run it
 
 ```bash
 npm install         # from the repo root — installs all workspaces
-npm run dev         # turbo runs apps/web (:3000) and apps/api (:3001) together
+npm run dev         # turbo runs apps/web (:3000); apps/api (:3001) still starts but the web app doesn't call it
 npm run build       # turbo builds packages/contracts, then apps/api and apps/web
 npm run fixtures    # regenerate apps/api/src/fixtures/data only
 ```
@@ -51,3 +51,27 @@ Today, Sales (including a "Kitchen load, yesterday" chart), Labour, Inventory, A
 ## The kitchen-load story
 
 The sharpest piece of ops feedback so far: a kitchen can get slammed by a burst of orders landing at once, and that burst doesn't always show up as a busier sales day. `packages/contracts/src/core/kitchen.ts` tracks tickets per hour against a location's (or hotel outlet's) comfortable ticket-per-hour pace, independent of net sales. When an hour outruns that pace, it shows up as an alert on Today, a chart on Sales, a line in the morning brief, an answer to "Did the kitchen keep up yesterday?", and a standing proposal from a new "Kitchen Pacing" agent to pause delivery-app or online-order intake for 20 minutes during that rush — the same kind of proposal the Labour Optimizer already makes for overstaffed shifts.
+
+
+## Construction demo
+
+`apps/web` is a construction-only frontend with a mocked backend:
+
+```
+apps/web/src/lib/construction/
+  types.ts      domain: Company, Project, CostCode, ChangeOrder, Milestone, ProcurementItem, Subcontractor, ...
+  fixtures.ts   hand-authored mock world; dates are offsets from "today" so it never goes stale
+  core.ts       pure rules: job financials, portfolio roll-up, alerts, brief, Q&A, agent runs, approvals
+  format.ts     CAD money, points, dates
+apps/web/src/lib/api-client.ts   mocked client: same namespaces a real backend would expose, resolves from core.ts
+```
+
+Set `NEXT_PUBLIC_DEMO_TODAY=YYYY-MM-DD` to pin the demo date.
+
+**Tenants:** Summit Ridge Builders (Calgary, Procore + Sage 300 CRE), Ironwood Construction (Toronto, Autodesk Build + Jonas Premier), Cascade Contracting (Vancouver, Procore + QuickBooks Online). Workers' comp and holdback copy follow each province (WCB Alberta, WSIB, WorkSafeBC; 10% holdback).
+
+**The hero story: margin fade from unpriced change work.** Crews start extra work before it's priced. The cost lands in job cost; the revenue doesn't, so the job looks fine in accounting while forecast margin slides. On Riverside Medical Office, $480K of field-started changes takes the forecast from 8.5% to 5.0%; approved at estimate it comes back to 8.1%. The Change Order Chaser agent drafts pricing packages into Approvals. Each tenant has its own version (Danforth dewatering at Ironwood, Burnaby ductwork at Cascade), plus a schedule story (long-lead switchgear) and a cash/compliance story (expired workers' comp clearance, missing lien waivers, underbilling).
+
+**Pages:** Today (brief, KPIs, alerts, ask box, jobs), Projects (list + job detail with margin trend, cost by code, schedule, changes), Change orders (pipeline and aging), Schedule (long-lead items, job timelines, milestones), Subs & payments (billing vs work in place, holdback, sub compliance), Approvals, Agents, Integrations, Settings. Every page works at 390px.
+
+**Forecast margin** = (revised contract − forecast cost at completion) / revised contract, where forecast cost includes the cost of field-started changes that are not yet approved.
