@@ -23,7 +23,7 @@ export default function LoginPage() {
     setBusy(true);
     // Demo build: any email and password signs in. The session lives in memory only.
     setTimeout(() => {
-      signIn(email || "owner@example.com");
+      signIn(email || "dana@summitridgebuilders.ca");
       router.replace("/");
     }, 350);
   };
@@ -33,12 +33,12 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
           <Logo className="text-xl" />
-          <p className="text-muted-foreground text-sm">Your restaurant, briefed every morning.</p>
+          <p className="text-muted-foreground text-sm">Every job, briefed every morning.</p>
         </div>
         <form onSubmit={submit} className="bg-card flex flex-col gap-4 rounded-xl border p-5 shadow-xs">
           <div className="flex flex-col gap-2">
             <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" inputMode="email" autoComplete="username" placeholder="you@restaurant.ca" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <Input id="email" type="email" inputMode="email" autoComplete="username" placeholder="you@builder.ca" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="password">Password</Label>

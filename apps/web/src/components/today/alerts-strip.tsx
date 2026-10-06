@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
-import type { Alert } from "@evolv/contracts/types";
+import type { Alert } from "@/lib/construction/types";
 import { SEVERITY_META, SeverityIcon } from "@/components/common/severity";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -18,7 +18,7 @@ export function AlertsStrip({ alerts, loading }: { alerts: Alert[] | undefined; 
     );
   }
   if (!alerts || alerts.length === 0) {
-    return <EmptyState title="No alerts for this day" description="Sales, labour and stock were all inside their normal ranges." />;
+    return <EmptyState title="No alerts this morning" description="Every job is inside its margin, schedule and compliance rules." />;
   }
   return (
     <ul className="flex flex-col gap-2">
