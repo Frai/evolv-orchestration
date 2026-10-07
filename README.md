@@ -1,77 +1,48 @@
-# Evolv demo site
+# Evolv demo: oil & gas contractors
 
-A clickable, fully mocked web app that looks like the finished Evolv product, now pointed at **mid-size general contractors** ($20–150M revenue, 5–15 active jobs). Nothing here talks to a real vendor, and no model is called at runtime.
+A clickable demo of Evolv for oil and gas field service and construction contractors. Evolv sits above a contractor's existing accounting, estimating, timekeeping, ticketing, fleet and safety systems and turns them into an operating picture: early warning of margin erosion, unbilled work, stuck field tickets, late material and overdue safety follow-up, with human-approved actions.
 
-> **Current state:** `apps/web` is the construction demo and is self-contained — its mock data, rules and API client live in `apps/web/src/lib`. It no longer calls `apps/api` or imports `packages/contracts`; those still hold the earlier restaurant/hotel build and are untouched. See [Construction demo](#construction-demo) below.
+**The whole thing runs in the browser.** There is no backend and no database. The data is synthetic and deterministic, generated on first load. The signal rules are real: they run over the canonical model at request time, so what you see is what the rules would say about real data. No vendor is called and no model runs. Plan and rationale: [`docs/OIL_GAS_PIVOT.md`](docs/OIL_GAS_PIVOT.md). Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+This is a Turborepo monorepo: a Next.js static site (`apps/web`) and shared domain code (`packages/contracts`).
 
 ## Run it
 
 ```bash
-npm install         # from the repo root — installs all workspaces
-npm run dev         # turbo runs apps/web (:3000); apps/api (:3001) still starts but the web app doesn't call it
-npm run build       # turbo builds packages/contracts, then apps/api and apps/web
-npm run fixtures    # regenerate apps/api/src/fixtures/data only
+npm install
+npm run dev      # http://localhost:3000
+npm run test     # contracts and web unit tests
+npm run build    # static export to apps/web/out
 ```
 
-`apps/web` needs `NEXT_PUBLIC_API_BASE_URL` (see `apps/web/.env.local.example`; defaults to `http://localhost:3001`). `apps/api` needs no environment variables locally. `apps/web`'s build is still a static export (`output: "export"`), and `apps/api`'s fixtures regenerate on every build so "yesterday" stays yesterday.
-
-Sign in with any email and password. The session, approvals, integration states and settings live in memory and reset on reload.
+Sign in with any email and password. Everything resets on reload. Set `NEXT_PUBLIC_FIXTURE_TODAY=YYYY-MM-DD` to pin "yesterday" (it otherwise follows the real date, skipping weekends).
 
 ## Layout
 
 ```
-apps/web              Next.js frontend (App Router, static export)
-  src/app             routes
-  src/components      UI; imports only from @evolv/contracts and src/lib/api-client, never from fixtures
-  src/lib/api-client   typed fetch client, one namespace per port
-
-apps/api               NestJS backend — the orchestrator
-  src/<port>/          one module + controller + mock provider per port (sales, labour, inventory,
-                       accounting, narrator, notifier, agents, approvals, integrations)
-  src/fixtures         generated JSON + the seeded generator that produces it
-
-packages/contracts      shared, framework-free: domain types, port interfaces, pure domain functions
-                        (brief deltas, alert rules, sales/labour/inventory maths)
+apps/web                Next.js frontend (App Router, static export)
+  src/demo              the fake world: seeded generator (gen/), in-browser store, and the nine
+                        ports from @evolv/contracts implemented over it (backend.ts)
+  src/lib/api-client.ts the only way pages get data; today it delegates to src/demo/backend.ts
+packages/contracts      shared, framework-free: domain types, port interfaces, and the pure
+                        domain functions (EVM, billing leakage, alert rules, brief inputs)
 ```
-
-Swapping a mock for a real vendor source is a one-line change in the relevant `apps/api/src/<port>/<port>.module.ts` (`useClass` on the port's injection token) — see `docs/ARCHITECTURE.md`.
 
 ## Mock world
 
-Five tenants, switchable from the top bar: Prairie Table (Toast, dinner-heavy), Bow Valley Burger Co. (Square, quick-service lunch), Northside Cantina (Lightspeed, strong delivery share), The Kensington Hotel (Toast, three F&B outlets with an outlet sub-switcher), and The Early Bird (Clover, a breakfast/brunch café with a sharp 8–10am rush and no dinner service). Tracked hours run 07:00–23:00 so a breakfast rush and a late dinner service both fit in the same model.
+Four contractors, switchable from the top bar, each with three active jobs and a job filter:
 
-The generator is seeded, so the same numbers come out every run for a given date. It plants, per tenant: one bad Saturday, one unexplained midweek sales spike, two overstaffed Tuesday lunches, one understaffed Friday, four stock items below par with one critical, three dead menu items, and — every day, on "yesterday" specifically — a burst of tickets at the location's own busiest hour that outruns its kitchen's comfortable pace (a hotel's three outlets converge on the same hour, the way a real hotel's dinner, bar and room service all get busy together). Alerts, the kitchen-load chart, the morning brief and the agent runs are all computed at runtime by the pure functions in `packages/contracts` over that data, so the rules are real even though the data is not.
+- **Foothills Pipeline & Civil** (Calgary, Viewpoint Vista). Ridge Loop gathering line: rock excavation at CPI 0.70, $98k booked to an extra-work code with no change order, 25% overtime, line pipe landing nine days late. Highway 22 bore: $375k earned but not invoiced.
+- **Peace River Oilfield Services** (Grande Prairie, QuickBooks, FieldCap, OpenInvoice). Field tickets stuck before billing: six unsigned, four signed but never submitted, two disputed. A rented vac truck idle all week. Swan Hills dig crew at 32% overtime.
+- **Red Deer Roustabout & Lease Construction** (Sage 300 CRE). Gravel overrun on the Sundre road, a culvert package five days late, a safety corrective action seven days overdue.
+- **Bow River Facilities Contractors** (NetSuite). $915k earned on Strathmore battery but not invoiced, an idle rented excavator, extra work on the Bassano meter station with a draft change order.
 
-Fixtures are regenerated on every build so "yesterday" is always yesterday. Set `FIXTURE_TODAY=YYYY-MM-DD` to pin the date.
+Every signal is a self-explaining record: severity, evidence, suggested action and owner. Tap one on Today for the evidence.
 
 ## Pages
 
-Today, Sales (including a "Kitchen load, yesterday" chart), Labour, Inventory, Approvals, Agents, Integrations, Settings, and a fake Login. Every page works at 390px wide.
+Today, Jobs (earned-value S-curve and cost-code drill-down), Labour (overtime), Billing (field tickets, progress billing, change orders), Resources (equipment, materials and subcontracts, safety), Approvals, Agents, Integrations, Settings, and a fake Login. The layout is responsive by construction (responsive grids, scrolling tables), though the mobile layout has not been checked in a browser since the rewrite.
 
-## The kitchen-load story
+## The one real write
 
-The sharpest piece of ops feedback so far: a kitchen can get slammed by a burst of orders landing at once, and that burst doesn't always show up as a busier sales day. `packages/contracts/src/core/kitchen.ts` tracks tickets per hour against a location's (or hotel outlet's) comfortable ticket-per-hour pace, independent of net sales. When an hour outruns that pace, it shows up as an alert on Today, a chart on Sales, a line in the morning brief, an answer to "Did the kitchen keep up yesterday?", and a standing proposal from a new "Kitchen Pacing" agent to pause delivery-app or online-order intake for 20 minutes during that rush — the same kind of proposal the Labour Optimizer already makes for overstaffed shifts.
-
-
-## Construction demo
-
-`apps/web` is a construction-only frontend with a mocked backend:
-
-```
-apps/web/src/lib/construction/
-  types.ts      domain: Company, Project, CostCode, ChangeOrder, Milestone, ProcurementItem, Subcontractor, ...
-  fixtures.ts   hand-authored mock world; dates are offsets from "today" so it never goes stale
-  core.ts       pure rules: job financials, portfolio roll-up, alerts, brief, Q&A, agent runs, approvals
-  format.ts     CAD money, points, dates
-apps/web/src/lib/api-client.ts   mocked client: same namespaces a real backend would expose, resolves from core.ts
-```
-
-Set `NEXT_PUBLIC_DEMO_TODAY=YYYY-MM-DD` to pin the demo date.
-
-**Tenants:** Summit Ridge Builders (Calgary, Procore + Sage 300 CRE), Ironwood Construction (Toronto, Autodesk Build + Jonas Premier), Cascade Contracting (Vancouver, Procore + QuickBooks Online). Workers' comp and holdback copy follow each province (WCB Alberta, WSIB, WorkSafeBC; 10% holdback).
-
-**The hero story: margin fade from unpriced change work.** Crews start extra work before it's priced. The cost lands in job cost; the revenue doesn't, so the job looks fine in accounting while forecast margin slides. On Riverside Medical Office, $480K of field-started changes takes the forecast from 8.5% to 5.0%; approved at estimate it comes back to 8.1%. The Change Order Chaser agent drafts pricing packages into Approvals. Each tenant has its own version (Danforth dewatering at Ironwood, Burnaby ductwork at Cascade), plus a schedule story (long-lead switchgear) and a cash/compliance story (expired workers' comp clearance, missing lien waivers, underbilling).
-
-**Pages:** Today (brief, KPIs, alerts, ask box, jobs), Projects (list + job detail with margin trend, cost by code, schedule, changes), Change orders (pipeline and aging), Schedule (long-lead items, job timelines, milestones), Subs & payments (billing vs work in place, holdback, sub compliance), Approvals, Agents, Integrations, Settings. Every page works at 390px.
-
-**Forecast margin** = (revised contract − forecast cost at completion) / revised contract, where forecast cost includes the cost of field-started changes that are not yet approved.
+Approving a Change-Order Catcher draft adds a pending change order for the extra-work cost code in the in-browser store, and the "booked with no change order" signal then clears. Every other agent drafts only: a person sends the email, the billing package or the reminder. Nothing writes back to accounting, payroll or safety systems, and safety is routed and reminded, never decided.

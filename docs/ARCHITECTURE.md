@@ -2,100 +2,71 @@
 
 ## What this system is
 
-Evolv is a mocked, fully clickable product demo for restaurants and hotels that have signed an LOI. It looks and behaves like the finished Evolv product — a morning brief, sales/labour/inventory dashboards, an approvals queue, and a set of "agents" that watch the numbers and propose actions — but nothing in it talks to a real POS, scheduling tool, or accounting system yet, and no model is called at runtime. Every number comes from a seeded, deterministic generator so the same demo date always produces the same story.
+Evolv for oil and gas contractors: a read-mostly layer above a contractor's existing project, accounting, timekeeping, ticketing, fleet and safety systems. This repo is a demo, and the demo is fake on purpose: a static Next.js site that generates a seeded, deterministic world in the browser. There is no backend and no database, nothing talks to a real vendor, and no model runs. See `docs/OIL_GAS_PIVOT.md` for the segment, the systems landscape and the build plan this follows.
 
-Five tenants ship with the demo: Prairie Table (full-service, Toast), Bow Valley Burger Co. (QSR, Square), Northside Cantina (delivery-heavy, Lightspeed), The Kensington Hotel (three F&B outlets, Toast), and The Early Bird (breakfast-only café, Clover). See the root `README.md` for the full domain story (kitchen-load tracking, alerts, agents) — this document is about how the system is put together, not what it shows.
-
-## Why a frontend/backend split
-
-The original build was a single Next.js app that imported its mock data adapters directly. That was fine for a static demo, but the intended shape of the real product is an **orchestrator backend** that talks to different vendor systems per tenant — Square here, Toast there, a scheduling tool for labour, an accounting system for cost data — while the frontend stays vendor-agnostic. Splitting into `apps/web` (Next.js) and `apps/api` (NestJS) now means the backend can grow into that role without ever touching the frontend again: every vendor integration is just a new adapter class behind an existing port.
-
-## Hexagonal architecture across two apps
+## Hexagonal architecture, in one app
 
 ```
 apps/web (Next.js, "use client" pages)
-     |  fetch() via src/lib/api-client.ts
+     |  apiClient.<port>.<method>()                    src/lib/api-client.ts
      v
-apps/api (NestJS)
-  Controllers  (HTTP surface — one per port)
+Ports  (interfaces in packages/contracts)
      |
-  Providers    (the adapters — inject a port token, implement a port interface)
-     |
-  Ports        (interfaces, defined in packages/contracts)
-     |
-     +--> MockSalesSource, MockLabourSource, ...   (reads apps/api/src/fixtures/data/*.json — live today)
-     +--> SquarePOSAdapter, ToastPOSAdapter, ...    (stub classes, implement the port, not wired in — future work)
+     +--> src/demo/backend.ts   implements all nine ports over the in-browser store   (live today)
+     +--> real connectors (Vista, Sage, FieldCap, OpenInvoice, ExakTime, ...)          (future)
 
 packages/contracts
-  domain types + port interfaces + pure domain functions, shared by both apps
+  domain types + port interfaces + pure domain functions, used by the pages and the demo backend
 ```
 
-The shape is the same hexagonal architecture the single-app version already had (`core` / `ports` / `adapters`), just split across a process boundary: what used to be a same-process function call (`adapters.sales.getSalesDays(...)`) is now an HTTP call from `apps/web` to a NestJS controller, which delegates to whatever provider is currently wired to that port's injection token.
+The ports are the seam. Pages call `apiClient`, which today delegates to `src/demo/backend.ts`. A real build keeps the pages and `packages/contracts` and swaps the backend for connectors behind the same interfaces, on a server this time.
 
-## Layer contracts — what's expected of each layer
+## Layer contracts
 
-- **`apps/web`** only imports from `@evolv/contracts` (types and pure domain functions) and its own `src/lib/api-client.ts`. It never imports a fixture file, a provider class, or anything from `apps/api`. If a page needs new data, the fix is a new endpoint on the relevant NestJS controller and a new method on `api-client.ts` — not a new import path into the backend.
-- **`apps/api`** is the only thing that touches `apps/api/src/fixtures/**` or, eventually, a real vendor SDK/API key. Controllers depend only on port interfaces (`SalesSource`, `LabourSource`, ...), never on a concrete provider class — that's what makes swapping a mock for a real vendor a one-line change (see below).
-- **`packages/contracts`** stays framework-free: no React, no Nest decorators, no `fetch`. It's plain TypeScript types and pure functions that both apps can depend on without pulling in the other app's runtime.
+- **Pages and components** import only from `@evolv/contracts` (types and pure functions) and `src/lib/api-client.ts`. They never import from `src/demo`. Dashboards load one `Snapshot` per company (`loadSnapshot`) and compute everything else with the pure functions, so signals, forecasts and brief inputs are the same code a server would run.
+- **`src/demo`** is the only code that knows the data is fake: the generator (`gen/`), the store (`store.ts`) and the port implementations (`backend.ts`).
+- **`packages/contracts`** stays framework-free: no React, no `fetch`.
 
-## The 9 ports
+## Canonical model
 
-Each port from the original `src/ports/` has one NestJS module in `apps/api/src`, one controller exposing it over HTTP, and one mock provider reading from the fixture JSON.
+Every source dialect translates into one small model (`domain.ts`): `Company`, `Job`, `CostCode` (estimate line, budget at completion), `CostDay` (actual cost, hours, overtime and quantity installed per code per day), `FieldTicket`, `ChangeOrder`, `Invoice`, `Equipment`, `Commitment`, `SafetyEvent`. Connectors are thin translators; no insight code touches a raw vendor schema. Granularity follows one chain: cost code, then job, then portfolio, because that is the path every margin signal drills down through.
 
-| Port | Module / controller | Mock provider | Stub vendor adapters |
-|---|---|---|---|
-| `SalesSource` | `sales/` — `/sales` | `sales/providers/mock-sales.provider.ts` | `square-pos.provider.ts`, `toast-pos.provider.ts`, `lightspeed-pos.provider.ts`, `clover-pos.provider.ts` |
-| `LabourSource` | `labour/` — `/labour` | `labour/providers/mock-labour.provider.ts` | — |
-| `InventorySource` | `inventory/` — `/inventory` | `inventory/providers/mock-inventory.provider.ts` | — |
-| `AccountingSource` | `accounting/` — `/accounting` | `accounting/providers/mock-accounting.provider.ts` | — |
-| `Narrator` | `narrator/` — `/narrator` | `narrator/providers/mock-narrator.provider.ts` | — |
-| `Notifier` | `notifier/` — `/notifier` | `notifier/providers/mock-notifier.provider.ts` | — |
-| `AgentRunner` | `agents/` — `/agents` | `agents/providers/mock-agent-runner.provider.ts` | — |
-| `ApprovalQueue` | `approvals/` — `/approvals` | `approvals/providers/mock-approval-queue.provider.ts` | — |
-| `IntegrationRegistry` | `integrations/` — `/integrations` | `integrations/providers/mock-integration-registry.provider.ts` | — |
+## The ports
 
-The four POS stub adapters (Square, Toast, Lightspeed, Clover) exist as files implementing `SalesSource`, each method throwing `"not implemented — <vendor>"` with a `// TODO` comment. They are **not** referenced by `SalesModule`'s provider array yet — they're scaffolding for the next phase of work, not live code.
+| Port | Backed by (demo) | What it stands for |
+|---|---|---|
+| `ProjectSource` | `projects` in `backend.ts` | Accounting job cost, estimate, timekeeping, field progress |
+| `BillingSource` | `billing` | Field tickets, progress invoices, change orders |
+| `ResourceSource` | `resources` | Fleet telematics, purchase orders, subcontracts |
+| `SafetySource` | `safety` | Incidents, near-misses, corrective actions |
+| `Narrator` | `narrator` | Pre-written daily briefs and Q&A |
+| `Notifier` | `notifier` | Delivery log |
+| `AgentRunner` | `agents` | Agent runs and traces |
+| `ApprovalQueue` | `approvals` | Draft actions awaiting a human |
+| `IntegrationRegistry` | `integrations` | Which source systems are connected |
 
-## Target vendor landscape (Canada)
+## Insight rules (`packages/contracts/src/core`)
 
-The vendor names in this doc (Square, Toast, Lightspeed, Clover, plus each tenant's assigned vendor in the mock world) aren't arbitrary — they're the systems most commonly found in Canadian restaurants and hotels today, and the ones a real orchestrator backend will eventually need adapters for. Grouped by port:
+- `evm.ts`: earned-value management per cost code, rolled up to the job. CPI = EV / AC, SPI = EV / PV, EAC = AC + (BAC - EV) / CPI, margin at completion = (contract - EAC) / contract. Trailing-window CPI so a job that went bad two weeks ago is not hidden by a healthy first month.
+- `billing.ts`: field-ticket leakage (unsigned, signed-not-submitted, disputed), billing lag against a 14-day billing cycle, receivables, and cost booked to extra-work codes with no change order.
+- `labour.ts`, `resources.ts`: overtime share, equipment idle days and burn, material slip against need dates, overdue safety actions.
+- `alerts.ts`: named rules with explicit thresholds (`RULES`). Every signal carries severity, evidence, suggested action and owner.
+- `brief.ts`: the inputs a narrator writes the daily brief from, with week-over-week deltas.
 
-| Category | Port | Vendors | Notes |
-|---|---|---|---|
-| POS | `SalesSource` | **Lightspeed** (Canadian, Montreal), **Square**, **Toast**, **Clover**, **TouchBistro** (Canadian, Toronto), Micros/Oracle, Aloha (NCR Voyix) | Lightspeed and TouchBistro are Canadian-built and have strong domestic share; Clover is often bundled through bank merchant services (Moneris, TD, Desjardins); Micros/Aloha show up at enterprise/hotel scale — relevant for multi-outlet tenants like The Kensington Hotel |
-| Scheduling / Labour | `LabourSource` | **7shifts** (Canadian, Saskatoon), When I Work, Deputy | 7shifts is restaurant-specific and the default assumption for `LabourSource` beyond the current mock |
-| Inventory | `InventorySource` | MarketMan, Apicbase | |
-| Accounting | `AccountingSource` | QuickBooks, Xero | |
-| Delivery | (surfaced via `SalesSource`/alerts, not a dedicated port) | DoorDash, Uber Eats, **SkipTheDishes** (Canadian-specific) | Drives the delivery-intake pause proposals from the Kitchen Pacing agent |
+## Approvals and the one real write
 
-Only the four POS vendors (Square, Toast, Lightspeed, Clover) have stub provider classes today (see the table above). TouchBistro and 7shifts are the next-most-relevant given Canadian market share and existing ports (`SalesSource`, `LabourSource` respectively) — same stub pattern applies when that work starts: implement the port interface, throw `"not implemented"` with a `// TODO`, don't wire it into the module's provider array until it's real.
+`approvals.resolve` records a decision once; resolving an already-decided approval does nothing, so it cannot write twice. Approving a `change-order-catcher` draft also adds a pending change order for the extra-work cost code, so the "no change order on file" signal clears on the next snapshot load. Every other agent only records the decision: Evolv drafts, a person sends. No agent writes to accounting, payroll or safety systems.
 
-## How to add a real vendor integration
+## The fake world
 
-1. Implement the port interface in a new (or the existing stub) provider class, e.g. `apps/api/src/sales/providers/square-pos.provider.ts`. Fill in the real API calls; keep the method signatures exactly matching `SalesSource`.
-2. In the module file (`sales.module.ts`), change the `useClass` for that port's token:
-   ```ts
-   providers: [{ provide: SALES_SOURCE, useClass: SquarePOSAdapter }],
-   ```
-   You can also make this conditional on an env var (`useFactory` instead of `useClass`) if different tenants use different vendors at once.
-3. Nothing else changes. `apps/web` never knew which class was behind `SALES_SOURCE` — it only ever called `apiClient.sales.getSalesDays(...)`, which hits `/sales/days` regardless of what's wired up server-side. `packages/contracts` doesn't change either, since the port interface was already vendor-agnostic.
+`gen/build.ts` assembles four contractors with three jobs each. It is seeded, so the same date always gives the same numbers, and "yesterday" is the last weekday because crews book no cost on weekends. Stories are planted on purpose (margin erosion, unbilled extra work, stuck tickets, late material, overdue safety action) and the rules find them for real. Only the latest day's agent runs and approvals come from the live signals; earlier days are "no action" or "still open". The world is built on first use and held in memory (`store.ts`), so it resets on reload.
 
-This is the same "one line to swap a source" story the original single-app README described for `src/adapters/index.ts` — it now happens in NestJS's DI configuration instead of a plain object literal.
+## How to add a real connector
 
-## Local dev
+1. Implement the port interface in a new class on a server, e.g. a Vista export reader implementing `ProjectSource`. Each connector extracts, normalizes into the canonical model through the job's cost-code mapping table, validates (totals tie out, no duplicate keys) and upserts with source lineage.
+2. Replace the matching assignment in `src/lib/api-client.ts` with a fetch client that has the same method names.
+3. Nothing else changes. The pages and `packages/contracts` never knew the data was fake.
 
-```bash
-npm install               # from the repo root — installs all three workspaces
-npm run dev                # turbo runs apps/web (:3000) and apps/api (:3001) together
-```
+## Local dev and deploy
 
-`apps/api` regenerates its fixtures on `predev`/`prebuild` so "yesterday" is always yesterday; set `FIXTURE_TODAY=YYYY-MM-DD` to pin it. `apps/web` needs `NEXT_PUBLIC_API_BASE_URL` set (see `apps/web/.env.local.example`) — it defaults to `http://localhost:3001` if unset.
-
-## Deploy topology
-
-`apps/web` and `apps/api` are two separate Vercel projects, deployed and scaled independently:
-
-- **`evolv-web`** — root directory `apps/web`. Still a static export (`output: "export"` in `next.config.ts`); every data-fetching page is already a client component, so static export deploys fine alongside a live backend. Env var: `NEXT_PUBLIC_API_BASE_URL` pointing at the `evolv-api` deployment.
-- **`evolv-api`** — root directory `apps/api`. NestJS isn't zero-config on Vercel the way Next.js is, so `apps/api/api/index.ts` wraps the Nest app as an Express handler for a Vercel Function (see `apps/api/vercel.json`). Env var: `WEB_ORIGIN` set to the `evolv-web` deployment's URL, used for CORS in `apps/api/src/main.ts`.
-
-Both projects should set their **Install Command** to run from the repo root (`npm install`, since this is an npm workspaces monorepo) and their **Build Command** to `npx turbo build --filter=@evolv/web` / `--filter=@evolv/api` respectively, so each project only rebuilds what changed.
+`npm run dev`, `npm run test`, `npm run build` (static export to `apps/web/out`). It deploys as a single Vercel project with root `apps/web`; `apps/web/vercel.json` installs from the repo root and builds contracts then web. No environment variables are needed.

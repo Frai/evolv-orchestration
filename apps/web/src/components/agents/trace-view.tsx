@@ -1,8 +1,8 @@
 "use client";
 import Link from "next/link";
 import { AlertCircle, CheckCircle2, Flag, HandMetal, ListChecks, MessageCircle, Target } from "lucide-react";
-import type { AgentRun } from "@/lib/construction/types";
-import { durationMs } from "@/lib/construction/format";
+import type { AgentRun } from "@evolv/contracts/types";
+import { durationMs } from "@evolv/contracts/format";
 import { cn } from "@/lib/utils";
 
 const OUTCOME = {

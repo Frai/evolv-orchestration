@@ -5,8 +5,8 @@ import { Bot, Check, CheckCircle2, Pencil, X, XCircle } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { useAppState } from "@/components/providers/app-state";
 import { useAsync } from "@/hooks/use-async";
-import type { Agent, AgentMode, Approval } from "@/lib/construction/types";
-import { dateTime, money } from "@/lib/construction/format";
+import type { Agent, AgentMode, Approval } from "@evolv/contracts/types";
+import { dateTime, money } from "@evolv/contracts/format";
 import { PageHeader } from "@/components/layout/page-header";
 import { Section } from "@/components/common/section";
 import { Badge } from "@/components/ui/badge";
@@ -22,10 +22,11 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 export function ApprovalsPage() {
-  const { approvals, approvalsLoading, resolveApproval, editApproval, company, agentModes, setAgentMode } = useAppState();
+  const { approvals, approvalsLoading, resolveApproval, resolvingApprovalId, company, agentModes, setAgentMode } = useAppState();
   const agents = useAsync(() => apiClient.agents.listAgents(), []);
   const [editing, setEditing] = useState<Approval | null>(null);
   const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const pending = approvals.filter((a) => a.status === "pending");
   const done = approvals.filter((a) => a.status !== "pending").sort((a, b) => (b.resolvedAt ?? "").localeCompare(a.resolvedAt ?? ""));
@@ -33,7 +34,7 @@ export function ApprovalsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Approvals" description={`Actions agents want to take for ${company?.name}. Nothing goes to an owner, supplier or sub until you say so.`} />
+      <PageHeader title="Approvals" description={`Actions agents want to take for ${company?.name}. Nothing is sent or written until you say so.`} />
 
       <Tabs defaultValue="queue">
         <TabsList>
@@ -54,9 +55,9 @@ export function ApprovalsPage() {
                   key={a.id}
                   approval={a}
                   agentName={agentName(a.agentId)}
-                  tz={company!.timeZone}
-                  onApprove={() => resolveApproval(a.id, "approved")}
-                  onReject={() => resolveApproval(a.id, "rejected")}
+                  pending={resolvingApprovalId === a.id}
+                  onApprove={() => void resolveApproval(a.id, "approved").catch(() => {})}
+                  onReject={() => void resolveApproval(a.id, "rejected").catch(() => {})}
                   onEdit={() => {
                     setEditing(a);
                     setDraft(a.action);
@@ -75,7 +76,7 @@ export function ApprovalsPage() {
           ) : done.length ? (
             <div className="flex flex-col gap-3">
               {done.map((a) => (
-                <ApprovalCard key={a.id} approval={a} agentName={agentName(a.agentId)} tz={company!.timeZone} />
+                <ApprovalCard key={a.id} approval={a} agentName={agentName(a.agentId)} />
               ))}
             </div>
           ) : (
@@ -109,19 +110,23 @@ export function ApprovalsPage() {
             <Textarea id="action" rows={4} value={draft} onChange={(e) => setDraft(e.target.value)} />
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setEditing(null)}>
+            <Button variant="ghost" onClick={() => setEditing(null)} disabled={saving}>
               Cancel
             </Button>
             <Button
-              onClick={() => {
-                if (editing) {
-                  editApproval(editing.id, draft.trim() || editing.action);
-                  resolveApproval(editing.id, "approved");
+              disabled={saving}
+              onClick={async () => {
+                if (!editing) return;
+                setSaving(true);
+                try {
+                  await resolveApproval(editing.id, "approved", draft.trim() || editing.action);
+                  setEditing(null);
+                } finally {
+                  setSaving(false);
                 }
-                setEditing(null);
               }}
             >
-              Save and approve
+              {saving ? "Saving…" : "Save and approve"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -130,14 +135,28 @@ export function ApprovalsPage() {
   );
 }
 
-function ApprovalCard({ approval: a, agentName, tz, onApprove, onReject, onEdit }: { approval: Approval; agentName: string; tz: string; onApprove?: () => void; onReject?: () => void; onEdit?: () => void }) {
+function ApprovalCard({
+  approval: a,
+  agentName,
+  pending,
+  onApprove,
+  onReject,
+  onEdit,
+}: {
+  approval: Approval;
+  agentName: string;
+  pending?: boolean;
+  onApprove?: () => void;
+  onReject?: () => void;
+  onEdit?: () => void;
+}) {
   const resolved = a.status !== "pending";
   return (
     <Card className={cn("gap-3 px-4", resolved && a.status === "rejected" && "opacity-80")}>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-muted-foreground inline-flex items-center gap-1"><Bot className="size-3.5" /> {agentName}</span>
         <span className="text-muted-foreground">·</span>
-        <span className="text-muted-foreground">{dateTime(a.proposedAt, tz)}</span>
+        <span className="text-muted-foreground">{dateTime(a.proposedAt)}</span>
         {a.runId ? (
           <Link href={`/agents/?run=${encodeURIComponent(a.runId)}`} className="text-primary underline-offset-2 hover:underline">
             View trace
@@ -176,18 +195,18 @@ function ApprovalCard({ approval: a, agentName, tz, onApprove, onReject, onEdit 
       {resolved ? (
         <p className={cn("rounded-md border px-3 py-2 text-sm", a.status === "approved" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-900")}>
           {a.confirmation}
-          {a.resolvedAt ? <span className="ml-1 opacity-70">({dateTime(a.resolvedAt, tz)})</span> : null}
+          {a.resolvedAt ? <span className="ml-1 opacity-70">({dateTime(a.resolvedAt)})</span> : null}
         </p>
       ) : (
         <div className="grid grid-cols-3 gap-2 sm:flex sm:justify-end">
-          <Button variant="outline" onClick={onReject}>
+          <Button variant="outline" onClick={onReject} disabled={pending}>
             <X /> Reject
           </Button>
-          <Button variant="outline" onClick={onEdit}>
+          <Button variant="outline" onClick={onEdit} disabled={pending}>
             <Pencil /> Edit
           </Button>
-          <Button onClick={onApprove}>
-            <Check /> Approve
+          <Button onClick={onApprove} disabled={pending}>
+            <Check /> {pending ? "Working…" : "Approve"}
           </Button>
         </div>
       )}

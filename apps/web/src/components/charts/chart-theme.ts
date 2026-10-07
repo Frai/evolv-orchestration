@@ -4,8 +4,8 @@ export const CHART = {
   series3: "var(--chart-3)",
   series4: "var(--chart-4)",
   ghost: "var(--chart-ghost)",
-  grid: "oklch(0.92 0.005 250)",
-  axis: "oklch(0.52 0.012 255)",
+  grid: "oklch(0.93 0.004 80)",
+  axis: "oklch(0.55 0.01 60)",
   target: "oklch(0.55 0.2 27)",
 };
 

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Check, Loader2, ShieldCheck } from "lucide-react";
-import type { Integration } from "@/lib/construction/types";
+import type { Integration } from "@evolv/contracts/types";
 import { useAppState } from "@/components/providers/app-state";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -10,12 +10,15 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
 const SCOPES: Record<string, string[]> = {
-  project_management: ["Read budgets, commitments and change events", "Read RFIs, submittals and schedule", "Create change orders and send pricing (with approval)"],
-  accounting: ["Read job cost, AP and AR", "Read progress billings and holdback", "Place AP holds (with approval)"],
-  documents: ["Read drawings, ASIs and revisions", "Read markups and takeoffs"],
-  field: ["Read daily logs and crew hours", "Read production quantities"],
-  estimating: ["Read estimates and unit rates"],
-  messaging: ["Send the morning brief", "Send alerts"],
+  accounting: ["Read job cost by cost code", "Read commitments, receivables and payables", "No write access to your books"],
+  estimating: ["Read estimate lines and budget at completion", "Accept scheduled CSV or Excel drops"],
+  timekeeping: ["Read hours by worker, crew and cost code", "Read overtime"],
+  field: ["Read daily reports and quantities installed", "Read schedule activities and float"],
+  ticketing: ["Read field tickets and signature status", "Read crew, equipment and material lines"],
+  billing: ["Read invoice and dispute status", "Submit tickets only with your approval"],
+  equipment: ["Read engine hours and idle time", "Read maintenance schedules"],
+  safety: ["Read incidents, inspections and corrective actions", "Send reminders (routes only, never decides)"],
+  messaging: ["Send the daily brief", "Send urgent alerts"],
 };
 
 /** Mocked three-step OAuth: sign in with the vendor, grant scopes, initial sync. Ends connected. */
@@ -77,7 +80,7 @@ function ConnectFlow({ integration, onClose, onConnected }: { integration: Integ
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-2">
               <Label htmlFor="vendor-email">{integration.name} account email</Label>
-              <Input id="vendor-email" type="email" defaultValue={userEmail ?? ""} placeholder="you@builder.ca" />
+              <Input id="vendor-email" type="email" defaultValue={userEmail ?? ""} placeholder="you@contractor.ca" />
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="vendor-password">Password</Label>
@@ -103,7 +106,7 @@ function ConnectFlow({ integration, onClose, onConnected }: { integration: Integ
               <div className="bg-primary h-full rounded-full transition-all" style={{ width: `${progress}%` }} />
             </div>
             <p className="text-muted-foreground inline-flex items-center gap-2 text-sm">
-              <Loader2 className="size-4 animate-spin" /> Pulling active jobs, cost and change events from {integration.name}…
+              <Loader2 className="size-4 animate-spin" /> Pulling the last 90 days from {integration.name}…
             </p>
           </div>
         ) : (
@@ -111,7 +114,7 @@ function ConnectFlow({ integration, onClose, onConnected }: { integration: Integ
             <Check className="size-5" />
             <div className="text-sm">
               <div className="font-medium">{integration.name} is connected.</div>
-              <div className="text-xs opacity-80">First sync done. Tomorrow morning&apos;s brief will include it.</div>
+              <div className="text-xs opacity-80">First sync done. Tomorrow&apos;s brief will include it.</div>
             </div>
           </div>
         )}

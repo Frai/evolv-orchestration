@@ -1,137 +1,182 @@
 // Domain types. No React, no fetch, no fixtures.
+//
+// The canonical model Evolv translates every source system into. Connectors are thin
+// translators into these shapes; no insight code ever touches a raw vendor schema.
 
-export type LocationType = "full_service" | "quick_service" | "hotel";
-export type PosVendor = "toast" | "square" | "lightspeed" | "clover";
+export type Segment = "pipeline_civil" | "oilfield_services" | "lease_construction" | "facilities";
+export type AccountingVendor = "sage300cre" | "vista" | "quickbooks" | "netsuite";
 export type DeliveryChannel = "whatsapp" | "email" | "both";
 
-export interface Outlet {
-  id: string;
-  name: string;
-  kind: "restaurant" | "bar" | "room_service";
-  /** Tickets per hour this outlet's kitchen or bar can run without falling behind. */
-  kitchenTicketCapacityPerHour: number;
-}
-
-export interface WageBand {
-  role: string;
-  hourlyRate: number;
-}
-
-export interface Location {
+export interface Company {
   id: string;
   name: string;
   shortName: string;
-  type: LocationType;
-  pos: PosVendor;
+  segment: Segment;
+  accounting: AccountingVendor;
   city: string;
   currency: "CAD";
-  targetLabourPct: number;
-  menuItemCount: number;
-  staffCount: number;
-  wageBands: WageBand[];
-  /** Tickets per hour the kitchen can run without falling behind. For a hotel, the sum of its outlets'. */
-  kitchenTicketCapacityPerHour: number;
-  /** Hotels only: F&B outlets that roll up into the location. */
-  outlets?: Outlet[];
-  owner: { name: string; phone: string; email: string };
+  employeeCount: number;
+  /** Margin the company bids to and expects to hold at completion. */
+  targetMarginPct: number;
+  owner: { name: string; role: string; phone: string; email: string };
 }
 
-export type Channel = "dine_in" | "takeout" | "delivery" | "room_service";
-export const CHANNELS: Channel[] = ["dine_in", "takeout", "delivery", "room_service"];
-export const CHANNEL_LABEL: Record<Channel, string> = {
-  dine_in: "Dine-in",
-  takeout: "Takeout",
-  delivery: "Delivery",
-  room_service: "Room service",
+export const SEGMENT_LABEL: Record<Segment, string> = {
+  pipeline_civil: "Pipeline & civil",
+  oilfield_services: "Oilfield services",
+  lease_construction: "Lease construction",
+  facilities: "Facilities & batteries",
 };
 
-/** Hourly buckets run 07:00 through 23:00 inclusive (17 buckets), wide enough for a breakfast rush and a late dinner service. */
-export const HOUR_START = 7;
-export const HOUR_COUNT = 17;
+export type JobStatus = "active" | "closing_out";
 
-export interface SalesDay {
-  locationId: string;
-  outletId?: string;
+export interface Job {
+  id: string;
+  companyId: string;
+  name: string;
+  /** The operator the work is for. */
+  client: string;
+  contractValue: number;
   /** YYYY-MM-DD */
-  date: string;
-  netSales: number;
-  tax: number;
-  tips: number;
-  covers: number;
-  orders: number;
-  /** Net sales by hour, index 0 = 07:00 … index 16 = 23:00. */
-  hourly: number[];
-  /** Tickets (orders) by hour, same indexing as `hourly`. Sums to `orders`. */
-  hourlyOrders: number[];
-  channels: Record<Channel, number>;
-  /** Net sales on the same weekday one year earlier. */
-  lastYearNetSales: number;
+  startDate: string;
+  endDate: string;
+  status: JobStatus;
+  pm: string;
 }
 
-export interface MenuItem {
+export type CostCategory = "labour" | "equipment" | "material" | "subcontract";
+export const COST_CATEGORIES: CostCategory[] = ["labour", "equipment", "material", "subcontract"];
+export const CATEGORY_LABEL: Record<CostCategory, string> = {
+  labour: "Labour",
+  equipment: "Equipment",
+  material: "Material",
+  subcontract: "Subcontract",
+};
+
+/** One line of the estimate (budget at completion) mapped to the contractor's cost-code list. */
+export interface CostCode {
   id: string;
+  jobId: string;
+  code: string;
   name: string;
-  category: string;
-  price: number;
-}
-
-export interface ItemSales {
-  locationId: string;
-  outletId?: string;
-  date: string;
-  itemId: string;
-  name: string;
-  category: string;
-  qty: number;
-  netSales: number;
-}
-
-export type ShiftFlag = "overstaffed" | "understaffed";
-
-export interface Shift {
-  id: string;
-  role: string;
-  /** HH:MM */
-  start: string;
-  end: string;
-  scheduledStaff: number;
-  actualStaff: number;
-  /** Staff the sales in this window would normally justify. */
-  neededStaff: number;
-  hourlyRate: number;
-  salesInWindow: number;
-  flag?: ShiftFlag;
-}
-
-export interface LabourDay {
-  locationId: string;
-  outletId?: string;
-  date: string;
-  scheduledHours: number;
-  actualHours: number;
-  labourCost: number;
-  shifts: Shift[];
-}
-
-export type StockStatus = "ok" | "low" | "below_par" | "critical";
-
-export interface StockLevel {
-  locationId: string;
-  itemId: string;
-  name: string;
-  category: string;
+  category: CostCategory;
+  /** Budget at completion for this code. Zero for extra work that was never estimated. */
+  budget: number;
+  plannedQty: number;
   unit: string;
-  onHand: number;
-  par: number;
-  dailyUsage: number;
-  unitCost: number;
-  supplier: string;
-  /** Last counted, ISO timestamp. */
-  countedAt: string;
+  plannedStart: string;
+  plannedEnd: string;
+  /** Work that is not in the estimate (extra work booked to a catch-all code). */
+  extra?: boolean;
+}
+
+/** One day of actual cost and field progress against one cost code. */
+export interface CostDay {
+  jobId: string;
+  codeId: string;
+  date: string;
+  /** Labour codes only: total hours booked, of which `overtimeHours` were overtime. */
+  hours: number;
+  overtimeHours: number;
+  cost: number;
+  /** Quantity installed that day, in the code's unit. */
+  qty: number;
+}
+
+export type ChangeOrderStatus = "draft" | "pending" | "approved" | "rejected";
+
+export interface ChangeOrder {
+  id: string;
+  jobId: string;
+  number: string;
+  title: string;
+  amount: number;
+  status: ChangeOrderStatus;
+  /** Extra-work cost code this change order covers. */
+  codeId?: string;
+  createdAt: string;
+  submittedAt?: string;
+}
+
+export type TicketStatus = "open" | "signed" | "submitted" | "approved" | "disputed" | "paid";
+
+/** The field ticket is the revenue document for a service contractor. */
+export interface FieldTicket {
+  id: string;
+  companyId: string;
+  jobId: string;
+  number: string;
+  date: string;
+  crew: string;
+  description: string;
+  labourHours: number;
+  equipmentHours: number;
+  amount: number;
+  status: TicketStatus;
+  signedAt?: string;
+  submittedAt?: string;
+  disputeReason?: string;
+}
+
+export type InvoiceStatus = "draft" | "issued" | "paid" | "overdue";
+
+export interface Invoice {
+  id: string;
+  jobId: string;
+  number: string;
+  periodEnd: string;
+  amount: number;
+  status: InvoiceStatus;
+  issuedAt?: string;
+  dueDate?: string;
+  paidAt?: string;
+}
+
+export interface Equipment {
+  id: string;
+  jobId: string;
+  name: string;
+  type: string;
+  ownership: "owned" | "rented";
+  dailyRate: number;
+  /** Hours used per day for the last 14 days, oldest first. */
+  usageHours14: number[];
+  /** Next maintenance service due, if known. */
+  serviceDueDate?: string;
+}
+
+export type CommitmentStatus = "open" | "delivered" | "closed";
+
+export interface Commitment {
+  id: string;
+  jobId: string;
+  vendor: string;
+  description: string;
+  kind: "po" | "subcontract";
+  committed: number;
+  invoiced: number;
+  promisedDate: string;
+  /** Date the schedule needs the material or crew on site. */
+  needDate: string;
+  status: CommitmentStatus;
+}
+
+export type SafetyKind = "near_miss" | "incident" | "inspection_finding";
+
+export interface SafetyEvent {
+  id: string;
+  jobId: string;
+  kind: SafetyKind;
+  date: string;
+  title: string;
+  /** Role who owns the corrective action. */
+  owner: string;
+  correctiveDue: string;
+  status: "open" | "closed";
 }
 
 export interface Brief {
-  locationId: string;
+  companyId: string;
   date: string;
   headline: string;
   paragraphs: string[];
@@ -141,17 +186,29 @@ export interface Brief {
 }
 
 export type AlertSeverity = "info" | "warning" | "critical";
+export type AlertSource = "margin" | "labour" | "change_orders" | "billing" | "tickets" | "equipment" | "materials" | "safety";
 
+export interface AlertEvidence {
+  label: string;
+  value: string;
+}
+
+/** A self-explaining signal: severity, evidence, suggested action, owner. */
 export interface Alert {
   id: string;
-  locationId: string;
+  companyId: string;
+  jobId?: string;
   date: string;
   severity: AlertSeverity;
+  source: AlertSource;
   title: string;
   detail: string;
   /** Route the alert links to. */
   href: string;
-  source: "sales" | "labour" | "inventory" | "kitchen";
+  suggestedAction: string;
+  /** Role responsible for acknowledging the signal. */
+  owner: string;
+  evidence: AlertEvidence[];
 }
 
 export type AgentStatus = "active" | "coming_soon";
@@ -172,7 +229,7 @@ export type OutcomeKind = "brief_sent" | "alert_raised" | "approval_requested" |
 export interface AgentStep {
   index: number;
   title: string;
-  /** e.g. SalesSource.fetchSales */
+  /** e.g. ProjectSource.getCostDays */
   tool: string;
   inputSummary: string;
   outputSummary: string;
@@ -183,7 +240,7 @@ export interface AgentStep {
 export interface AgentRun {
   id: string;
   agentId: string;
-  locationId: string;
+  companyId: string;
   startedAt: string;
   finishedAt: string;
   durationMs: number;
@@ -212,23 +269,25 @@ export interface ApprovalEvidence {
 
 export interface Approval {
   id: string;
-  locationId: string;
+  companyId: string;
   agentId: string;
   runId?: string;
   title: string;
   summary: string;
   amount?: number;
+  /** Machine-readable reference, e.g. the extra-work cost code a change-order draft is for. */
+  refId?: string;
   evidence: ApprovalEvidence[];
   status: ApprovalStatus;
   proposedAt: string;
   resolvedAt?: string;
-  /** Shown after approval, e.g. "Sent to Sysco via email". */
+  /** Shown after approval, e.g. "Change order CO-014 submitted to the client". */
   confirmation: string;
   /** Editable free-text version of the action, for the Edit flow. */
   action: string;
 }
 
-export type IntegrationArea = "pos" | "scheduling" | "inventory" | "accounting" | "delivery" | "reservations" | "messaging";
+export type IntegrationArea = "accounting" | "estimating" | "timekeeping" | "field" | "ticketing" | "billing" | "equipment" | "safety" | "messaging";
 export type IntegrationState = "connected" | "available" | "coming_soon";
 
 export interface Integration {
@@ -241,7 +300,7 @@ export interface Integration {
 }
 
 export interface QAPair {
-  locationId: string;
+  companyId: string;
   question: string;
   keywords: string[];
   answer: string;
@@ -251,7 +310,7 @@ export interface Settings {
   deliveryChannel: DeliveryChannel;
   sendTime: string;
   recipients: string[];
-  targetLabourPct: number;
+  targetMarginPct: number;
 }
 
 export interface DeliveryReceipt {

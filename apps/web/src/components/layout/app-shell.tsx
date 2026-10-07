@@ -2,10 +2,10 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { LogOut, MoreHorizontal, RefreshCw } from "lucide-react";
+import { LogOut, MoreHorizontal } from "lucide-react";
 import { useAppState } from "@/components/providers/app-state";
 import { Logo } from "./logo";
-import { MOBILE_LABEL, NAV_ITEMS, isActive } from "./nav-items";
+import { NAV_ITEMS, isActive } from "./nav-items";
 import { TenantSwitcher } from "./tenant-switcher";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -41,12 +41,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-dvh md:flex">
       {/* Desktop sidebar */}
-      <aside className="bg-sidebar text-sidebar-foreground sticky top-0 hidden h-dvh w-60 shrink-0 flex-col md:flex">
+      <aside className="bg-card sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r md:flex">
         <div className="px-5 py-5">
           <Link href="/" aria-label="Today">
-            <Logo inverted />
+            <Logo />
           </Link>
-          <div className="text-sidebar-muted mt-3 text-[11px] font-semibold tracking-[0.08em] uppercase">{company.name}</div>
         </div>
         <nav className="flex flex-1 flex-col gap-0.5 px-3">
           {NAV_ITEMS.map((n) => {
@@ -57,7 +56,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 href={n.href}
                 className={cn(
                   "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-                  active ? "bg-sidebar-accent text-sidebar-foreground font-medium shadow-[inset_3px_0_0_var(--primary)]" : "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                  active ? "bg-accent text-accent-foreground font-medium" : "text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
                 <n.icon className="size-4" />
@@ -69,10 +68,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-        <div className="border-sidebar-accent border-t p-3">
+        <div className="border-t p-3">
           <button
             onClick={signOut}
-            className="text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex w-full cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm"
+            className="text-muted-foreground hover:bg-muted hover:text-foreground flex w-full cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm"
           >
             <LogOut className="size-4" /> Sign out
           </button>
@@ -86,10 +85,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Link href="/" className="md:hidden" aria-label="Today">
               <Logo compact />
             </Link>
-            <TenantSwitcher className="min-w-0 flex-1 justify-end md:flex-none md:justify-start" />
-            <span className="text-muted-foreground ml-auto hidden items-center gap-1.5 text-xs md:inline-flex">
-              <RefreshCw className="size-3.5" /> Synced 5:42 AM from {company.systems.pm} and {company.systems.accounting}
-            </span>
+            <TenantSwitcher className="min-w-0 flex-1 justify-end md:justify-start" />
           </div>
         </header>
 
@@ -108,7 +104,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 className={cn("flex flex-col items-center gap-1 py-2 text-[11px]", active ? "text-primary font-medium" : "text-muted-foreground")}
               >
                 <n.icon className="size-5" />
-                {MOBILE_LABEL[n.href] ?? n.label}
+                {n.label}
               </Link>
             );
           })}
